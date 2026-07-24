@@ -263,3 +263,6 @@ Every state-changing function emits a structured event. Topics are indexed by th
 | OZ stellar-macros | `stellar-macros = 0.7.2` |
 | Compile target | `wasm32v1-none` |
 | Release profile | LTO, `opt-level = "z"`, `panic = "abort"` |
+
+## Storage Rent Considerations
+Soroban charges rent for persistent storage. Projects, whitelists, and investments occupy persistent storage. To minimize costs, older inactive projects should be compacted using the `compact_archive` function, which reduces the storage footprint from ~580 bytes down to ~52 bytes. Instance storage is used for global configuration to lower per-access fees.

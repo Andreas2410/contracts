@@ -101,6 +101,17 @@ pub enum CertificationStatus {
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
+#[repr(u32)]
+pub enum ProjectStatus {
+    Pending = 0,
+    Active = 1,
+    Funded = 2,
+    Completed = 3,
+    Archived = 4,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProjectData {
     pub owner: Address,
     pub uri: String,
@@ -113,8 +124,8 @@ pub struct ProjectData {
     pub certification_status: CertificationStatus,
     /// Timestamp of the last score update (#70).
     pub last_update_timestamp: u64,
-    /// Whether the project has been archived (#26).
-    pub archived: bool,
+    /// The lifecycle status of the project (#27).
+    pub status: ProjectStatus,
 }
 
 /// Compact archive record stored when a project's full data is compacted (#73).
