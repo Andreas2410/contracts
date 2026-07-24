@@ -1192,6 +1192,31 @@ fn test_state_version_matches_stored() {
     assert_eq!(client.state_version(), client.stored_state_version());
 }
 
+#[test]
+#[should_panic]
+fn test_stale_stored_version_blocks_normal_calls() {
+    // MIGRATION.md: "require_current_state rejects calls if the stored
+    // version does not match the compiled STATE_VERSION. This prevents
+    // accidentally running new logic against an old storage layout." (#275)
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+
+    // Simulate a deployment whose stored schema version is ahead of this
+    // build's compiled STATE_VERSION (e.g. rolled back to older code after a
+    // migration ran). Note: stored version 0 ("pre-versioned deployment") is
+    // deliberately grandfathered through by require_current_state and does
+    // NOT panic here — only a genuine mismatch does.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&crate::types::DataKey::StateVersion, &2u32);
+    });
+
+    // A normal state-mutating call must be blocked until migrate_state runs.
+    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+}
+
 // ── Ownership transfer event test (#30) ───────────────────────────────────────
 
 #[test]

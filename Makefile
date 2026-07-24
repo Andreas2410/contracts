@@ -1,10 +1,13 @@
-.PHONY: build test deploy-testnet
+.PHONY: build test check-interface-docs deploy-testnet
 
 build:
 	stellar contract build
 
 test:
 	cargo test
+
+check-interface-docs:
+	python3 scripts/check_interface_docs.py
 
 deploy-testnet: build
 	@mkdir -p deploy
