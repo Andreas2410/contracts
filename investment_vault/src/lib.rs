@@ -1673,6 +1673,14 @@ fn require_not_paused(env: &Env) {
     }
 }
 
+/// Panics unless `caller` is the configured emergency admin (#43).
+fn require_emergency_admin(env: &Env, caller: &Address) {
+    let emergency_admin: Option<Address> = env.storage().instance().get(&VaultKey::EmergencyAdmin);
+    if emergency_admin.as_ref() != Some(caller) {
+        panic_with_error!(env, VaultError::NotEmergencyAdmin);
+    }
+}
+
 fn lock_deposit(env: &Env, address: &Address) {
     env.storage()
         .persistent()
@@ -1711,6 +1719,41 @@ impl InvestmentVault {
             .instance()
             .get(&VaultKey::Paused)
             .unwrap_or(false)
+    }
+
+    /// Set (or clear, via `None`) the emergency-admin address. Owner-only (#43).
+    ///
+    /// The emergency admin may call `emergency_pause`/`emergency_unpause` without
+    /// holding full owner privileges — intended for a fast-response operational
+    /// role, separate from the owner who manages funding, fees, etc.
+    #[only_owner]
+    pub fn set_emergency_admin(env: Env, emergency_admin: Option<Address>) {
+        match &emergency_admin {
+            Some(addr) => env.storage().instance().set(&VaultKey::EmergencyAdmin, addr),
+            None => env.storage().instance().remove(&VaultKey::EmergencyAdmin),
+        }
+        events::emergency_admin_changed(&env, emergency_admin);
+    }
+
+    /// Return the configured emergency-admin address, if any.
+    pub fn get_emergency_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&VaultKey::EmergencyAdmin)
+    }
+
+    /// Pause the vault as the emergency admin, without requiring owner auth (#43).
+    pub fn emergency_pause(env: Env, caller: Address) {
+        caller.require_auth();
+        require_emergency_admin(&env, &caller);
+        env.storage().instance().set(&VaultKey::Paused, &true);
+        events::paused(&env);
+    }
+
+    /// Unpause the vault as the emergency admin, without requiring owner auth (#43).
+    pub fn emergency_unpause(env: Env, caller: Address) {
+        caller.require_auth();
+        require_emergency_admin(&env, &caller);
+        env.storage().instance().set(&VaultKey::Paused, &false);
+        events::unpaused(&env);
     }
 
     // ── Storage compaction (#88) ───────────────────────────────────────────────

@@ -1299,6 +1299,32 @@ fn test_vault_pause_and_unpause() {
 }
 
 #[test]
+fn test_emergency_admin_can_pause_and_unpause_without_owner() {
+    let s = setup();
+    let emergency_admin = Address::generate(&s.env);
+
+    assert_eq!(s.vault_client.get_emergency_admin(), None);
+    s.vault_client.set_emergency_admin(&Some(emergency_admin.clone()));
+    assert_eq!(s.vault_client.get_emergency_admin(), Some(emergency_admin.clone()));
+
+    assert!(!s.vault_client.is_paused());
+    s.vault_client.emergency_pause(&emergency_admin);
+    assert!(s.vault_client.is_paused());
+    s.vault_client.emergency_unpause(&emergency_admin);
+    assert!(!s.vault_client.is_paused());
+}
+
+#[test]
+#[should_panic]
+fn test_emergency_pause_rejects_non_emergency_admin() {
+    let s = setup();
+    let emergency_admin = Address::generate(&s.env);
+    let stranger = Address::generate(&s.env);
+    s.vault_client.set_emergency_admin(&Some(emergency_admin));
+    s.vault_client.emergency_pause(&stranger);
+}
+
+#[test]
 #[should_panic]
 fn test_deposit_blocked_when_vault_paused() {
     let s = setup();

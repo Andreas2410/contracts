@@ -105,6 +105,19 @@ pub fn unpaused(env: &Env) {
     Unpaused {}.publish(env);
 }
 
+/// Emitted when the admin sets or clears the emergency-admin address (#43).
+#[contractevent]
+pub struct EmergencyAdminChanged {
+    pub new_emergency_admin: Option<Address>,
+}
+
+pub fn emergency_admin_changed(env: &Env, new_emergency_admin: Option<Address>) {
+    EmergencyAdminChanged {
+        new_emergency_admin,
+    }
+    .publish(env);
+}
+
 pub fn project_funded(env: &Env, project_id: u32, amount: i128, recipient: &Address) {
     ProjectFunded {
         project_id,

@@ -79,6 +79,8 @@ pub enum VaultError {
     RegistryPaused = 35,
     /// Withdrawal requested too soon after deposit.
     DepositLocked = 36,
+    /// Caller is neither the owner nor the configured emergency admin.
+    NotEmergencyAdmin = 37,
 }
 
 #[contracttype]
@@ -142,6 +144,9 @@ pub enum VaultKey {
     Paused,
     /// Last deposit ledger sequence per address.
     LastDeposit(Address),
+    /// Optional emergency-admin address that may pause/unpause without
+    /// holding full owner privileges (#43). Unset means no emergency admin.
+    EmergencyAdmin,
 }
 
 /// Container for wormhole bridge data keys.
