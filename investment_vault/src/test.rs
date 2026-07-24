@@ -1435,6 +1435,28 @@ fn test_vault_state_version() {
 
 #[test]
 #[should_panic]
+fn test_vault_stale_stored_version_blocks_normal_calls() {
+    // MIGRATION.md: "require_current_state rejects calls if the stored
+    // version does not match the compiled STATE_VERSION. This prevents
+    // accidentally running new logic against an old storage layout." (#275)
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+
+    // Simulate a deployment whose stored schema version has fallen behind
+    // this build's compiled STATE_VERSION, without going through migrate_state.
+    s.env.as_contract(&s.vault_address, || {
+        s.env
+            .storage()
+            .instance()
+            .set(&crate::types::VaultKey::StateVersion, &0u32);
+    });
+
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+}
+
+#[test]
+#[should_panic]
 fn test_vault_migrate_state_rejects_wrong_version() {
     let s = setup();
     s.vault_client.migrate_state(&0u32);
