@@ -86,6 +86,8 @@ pub enum RegistryError {
     ProjectNotArchived = 34,
     /// Circuit breaker is active (paused).
     Paused = 35,
+    /// Caller is neither the owner nor the configured emergency admin.
+    NotEmergencyAdmin = 36,
 }
 
 /// Certification state for a green project (#130).
@@ -126,6 +128,14 @@ pub struct ProjectData {
     pub last_update_timestamp: u64,
     /// The lifecycle status of the project (#27).
     pub status: ProjectStatus,
+    /// Ledger timestamp at project creation (#40).
+    ///
+    /// NOTE: this field was added after initial deployment. Projects created by
+    /// contract builds predating this change will not have a value for it;
+    /// any state-migration for existing persisted `ProjectData` records (see
+    /// `migrate_state`) must backfill this field, e.g. from `last_update_timestamp`
+    /// or 0, since it cannot be reconstructed from on-chain data otherwise.
+    pub created_at: u64,
 }
 
 /// Compact archive record stored when a project's full data is compacted (#73).
@@ -191,4 +201,7 @@ pub enum DataKey {
     ScoreHistoryTotal(u32),
     /// Circuit breaker pause state (#72).
     Paused,
+    /// Optional emergency-admin address that may pause/unpause without
+    /// holding full owner privileges (#43). Unset means no emergency admin.
+    EmergencyAdmin,
 }

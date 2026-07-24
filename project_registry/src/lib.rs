@@ -191,6 +191,7 @@ impl ProjectRegistry {
             certification_status: CertificationStatus::None,
             last_update_timestamp: 0,
             status: types::ProjectStatus::Pending,
+            created_at: env.ledger().timestamp(),
         };
 
         env.storage()
@@ -824,6 +825,41 @@ impl ProjectRegistry {
             .unwrap_or(false)
     }
 
+    /// Set (or clear, via `None`) the emergency-admin address. Owner-only (#43).
+    ///
+    /// The emergency admin may call `emergency_pause`/`emergency_unpause` without
+    /// holding full owner privileges — intended for a fast-response operational
+    /// role, separate from the owner who manages whitelisting, scoring, etc.
+    #[only_owner]
+    pub fn set_emergency_admin(env: Env, emergency_admin: Option<Address>) {
+        match &emergency_admin {
+            Some(addr) => env.storage().instance().set(&DataKey::EmergencyAdmin, addr),
+            None => env.storage().instance().remove(&DataKey::EmergencyAdmin),
+        }
+        events::emergency_admin_changed(&env, emergency_admin);
+    }
+
+    /// Return the configured emergency-admin address, if any.
+    pub fn get_emergency_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::EmergencyAdmin)
+    }
+
+    /// Pause the registry as the emergency admin, without requiring owner auth (#43).
+    pub fn emergency_pause(env: Env, caller: Address) {
+        caller.require_auth();
+        require_emergency_admin(&env, &caller);
+        env.storage().instance().set(&DataKey::Paused, &true);
+        events::registry_paused(&env);
+    }
+
+    /// Unpause the registry as the emergency admin, without requiring owner auth (#43).
+    pub fn emergency_unpause(env: Env, caller: Address) {
+        caller.require_auth();
+        require_emergency_admin(&env, &caller);
+        env.storage().instance().set(&DataKey::Paused, &false);
+        events::registry_unpaused(&env);
+    }
+
     // ── Score history (#123) ───────────────────────────────────────────────────
 
     /// Return the score history for `project_id` in chronological order (oldest first).
@@ -1080,6 +1116,14 @@ fn require_not_paused(env: &Env) {
         .unwrap_or(false);
     if paused {
         panic_with_error!(env, RegistryError::Paused);
+    }
+}
+
+/// Panics unless `caller` is the configured emergency admin (#43).
+fn require_emergency_admin(env: &Env, caller: &Address) {
+    let emergency_admin: Option<Address> = env.storage().instance().get(&DataKey::EmergencyAdmin);
+    if emergency_admin.as_ref() != Some(caller) {
+        panic_with_error!(env, RegistryError::NotEmergencyAdmin);
     }
 }
 

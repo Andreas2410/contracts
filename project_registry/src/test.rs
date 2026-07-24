@@ -1039,6 +1039,43 @@ fn test_registry_pause_and_unpause() {
 }
 
 #[test]
+fn test_create_project_records_created_at() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    env.ledger().with_mut(|li| li.timestamp = 12345);
+    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64);
+    let project = client.get_project(&id);
+    assert_eq!(project.created_at, 12345);
+}
+
+#[test]
+fn test_emergency_admin_can_pause_and_unpause_without_owner() {
+    let (env, _admin, _whitelister, client) = setup();
+    let emergency_admin = Address::generate(&env);
+
+    assert_eq!(client.get_emergency_admin(), None);
+    client.set_emergency_admin(&Some(emergency_admin.clone()));
+    assert_eq!(client.get_emergency_admin(), Some(emergency_admin.clone()));
+
+    assert!(!client.is_paused());
+    client.emergency_pause(&emergency_admin);
+    assert!(client.is_paused());
+    client.emergency_unpause(&emergency_admin);
+    assert!(!client.is_paused());
+}
+
+#[test]
+#[should_panic]
+fn test_emergency_pause_rejects_non_emergency_admin() {
+    let (env, _admin, _whitelister, client) = setup();
+    let emergency_admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    client.set_emergency_admin(&Some(emergency_admin));
+    client.emergency_pause(&stranger);
+}
+
+#[test]
 #[should_panic]
 fn test_create_project_blocked_when_paused() {
     let (env, _admin, _whitelister, client) = setup();
