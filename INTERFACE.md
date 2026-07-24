@@ -14,8 +14,9 @@ and interface tests. Types use Soroban SDK names.
 
 ## Multi-Sig Admin Pattern
 
-Both contracts support `set_multisig_admin(signers: Vec<Address>, threshold: u32)`,
-`clear_multisig_admin()`, and `get_multisig_admin() -> (Vec<Address>, u32)`.
+Both contracts support `set_multisig_admin(signers: Vec<Address>, threshold: u32)`
+and `get_multisig_admin() -> (Vec<Address>, u32)`. `clear_multisig_admin()` is
+currently ProjectRegistry-only — InvestmentVault has no equivalent function.
 
 The owner configures the signer set. `threshold = 0` means multi-sig is disabled
 and legacy owner auth is used. When enabled, critical operations must use the
@@ -37,9 +38,17 @@ Multi-sig errors:
 
 ### Data Types
 
-`ProjectData { owner: Address, uri: String, credit_quality: u32, green_impact: u32, maturity_date: u64, certification_status: CertificationStatus }`
+`ProjectData { owner: Address, uri: String, credit_quality: u32, green_impact: u32, maturity_date: u64, certification_status: CertificationStatus, last_update_timestamp: u64, status: ProjectStatus, created_at: u64, metadata_hash: BytesN<32> }`
 
 `CertificationStatus`: `None`, `Pending`, `Certified`, `Revoked`.
+
+`ProjectStatus`: `Pending`, `Active`, `Funded`, `Completed`, `Archived`.
+
+`ArchiveSummary { owner: Address, final_credit_quality: u32, final_green_impact: u32, maturity_date: u64, certification_status: CertificationStatus }`
+
+`ScoreHistoryEntry { timestamp: u64, credit_quality: u32, green_impact: u32 }`
+
+`HealthStatus { state_version: u32, is_paused: bool, total_projects: u32, has_emergency_admin: bool }` (see `health_check`, #77).
 
 `Proposal { description: String, proposer: Address, voting_ends_at: u64, votes_for: i128, votes_against: i128, executed: bool }`
 
@@ -49,13 +58,14 @@ Multi-sig errors:
 | --- | --- | --- | --- |
 | `__constructor(admin: Address, whitelister: Address)` | none | none | Sets owner, whitelister, counters. |
 | `set_whitelist(account: Address, status: bool)` | `whitelister` | none | Grants or revokes project creation rights. |
-| `create_project(creator: Address, uri: String, maturity_date: u64)` | `creator` | `u32` | Requires whitelist, URI length 8..512, future maturity when nonzero. |
+| `create_project(creator: Address, uri: String, maturity_date: u64, metadata_hash: BytesN<32>)` | `creator` | `u32` | Requires whitelist, URI length 8..512, future maturity when nonzero. `metadata_hash` is the content hash of the off-chain `uri` payload (#44). |
 | `get_project(id: u32)` | none | `ProjectData` | `ProjectNotFound`. |
 | `total_projects()` | none | `u32` | Highest assigned project id. |
+| `verify_metadata_hash(project_id: u32, candidate_hash: BytesN<32>)` | none | `bool` | True if `candidate_hash` matches the hash recorded at creation (#44). |
 | `update_impact_score(project_id: u32, credit_quality: u32, green_impact: u32)` | owner, or disabled when multi-sig is enabled | none | Scores 0..100. Use approval variant after enabling multi-sig. |
 | `update_impact_score_approved(project_id: u32, credit_quality: u32, green_impact: u32, approvals: Vec<Address>)` | multi-sig signers | none | Critical operation. |
-| `update_credit_quality_score(project_id: u32, credit_quality: u32)` | owner, or disabled when multi-sig is enabled | none | Updates credit score only. |
-| `update_credit_quality_approved(project_id: u32, credit_quality: u32, approvals: Vec<Address>)` | multi-sig signers | none | Critical operation. |
+| `update_credit_quality_score(project_id: u32, credit_quality: u32)` | owner, or disabled when multi-sig is enabled | none | Updates credit score only. No multi-sig-approved variant currently exists. |
+| `get_score_history(project_id: u32)` | none | `Vec<ScoreHistoryEntry>` | Chronological ring buffer of past score updates (#123). |
 | `certify_project(caller: Address, project_id: u32, status: CertificationStatus)` | `caller` | none | Caller must be whitelister or owner. |
 | `is_mature(project_id: u32)` | none | `bool` | False for open-ended projects. |
 | `get_all_projects()` | none | `Vec<(u32, ProjectData)>` | O(n) over registered ids. |
@@ -77,6 +87,24 @@ Multi-sig errors:
 | `get_creator_funding_limit_bps(creator: Address)` | none | `u32` | Reputation-derived suggested limit. |
 | `set_whitelister(new_whitelister: Address)` | owner | none | Replaces whitelister. |
 | `get_whitelister()` | none | `Address` | Current whitelister. |
+| `archive_project(project_id: u32)` | owner | none | Marks a project archived; excluded from `get_all_projects` by default (#26). |
+| `delete_project(project_id: u32)` | owner | none | Rejects deletion when the project has active investments. |
+| `get_all_projects_with_archived()` | none | `Vec<(u32, ProjectData)>` | Like `get_all_projects` but includes archived projects. |
+| `compact_archive(project_id: u32)` | owner | none | Replaces a full `ProjectData` with a minimal `ArchiveSummary` (#73). Project must already be archived. |
+| `get_archive_summary(project_id: u32)` | none | `ArchiveSummary` | Panics if the project hasn't been compacted. |
+| `compact_storage(project_ids: Vec<u32>, tokens: Vec<Address>)` | owner | `u32` | Removes zero-value collateral storage entries; returns count removed. |
+| `pause()` | owner | none | Blocks state-mutating operations; getters remain available (#72). |
+| `unpause()` | owner | none | Reverses `pause()`. |
+| `is_paused()` | none | `bool` | Circuit-breaker status. |
+| `set_emergency_admin(emergency_admin: Option<Address>)` | owner | none | Configures (or clears) an address that can call `emergency_pause`/`emergency_unpause` without full owner privileges (#43). |
+| `get_emergency_admin()` | none | `Option<Address>` | Currently configured emergency admin, if any. |
+| `emergency_pause(caller: Address)` | `caller` must be the configured emergency admin | none | Pauses without owner auth (#43). |
+| `emergency_unpause(caller: Address)` | `caller` must be the configured emergency admin | none | Unpauses without owner auth (#43). |
+| `health_check()` | none | `HealthStatus` | Consolidated status snapshot for monitoring integrations (#77). |
+| `state_version()` | none | `u32` | Schema version supported by this contract build. |
+| `stored_state_version()` | none | `u32` | Schema version recorded in instance storage; 0 for unversioned deployments. |
+| `migrate_state(from_version: u32)` | owner | `u32` | Migrates storage from `from_version` to the current schema version. |
+| `upgrade(new_wasm_hash: BytesN<32>)` | owner | none | Deploys new contract code at the current address. |
 
 ## InvestmentVault
 
@@ -91,6 +119,8 @@ Multi-sig errors:
 Compliance/reporting types: `ComplianceEventData`, `ReportingSnapshotData`,
 `RegulatoryReport`. Bridge type: `BridgeTransferPayload`.
 
+`HealthStatus { state_version: u32, is_paused: bool, utilization_bps: u32, has_emergency_admin: bool }` (see `health_check`, #77).
+
 ### Functions
 
 | Function | Auth | Returns | Errors / Notes |
@@ -103,14 +133,14 @@ Compliance/reporting types: `ComplianceEventData`, `ReportingSnapshotData`,
 | `fund_project(project_id: u32, amount: i128)` | owner, or disabled when multi-sig is enabled | none | Critical operation; checks score thresholds and insurance reserve. |
 | `fund_project_with_approvals(project_id: u32, amount: i128, approvals: Vec<Address>)` | multi-sig signers | none | Critical operation. |
 | `batch_fund_projects(fundings: Vec<(u32, i128)>, approvals: Vec<Address>)` | owner when multi-sig disabled, otherwise multi-sig signers | none | Common batch funding path. |
-| `receive_yield(from: Address, amount: i128)` | owner, or disabled when multi-sig is enabled | none | Transfers repayment USDC and updates yield accumulator. |
-| `receive_yield_with_approvals(from: Address, amount: i128, approvals: Vec<Address>)` | multi-sig signers | none | Critical operation. |
+| `receive_yield(from: Address, amount: i128)` | owner, or disabled when multi-sig is enabled | none | Transfers repayment USDC and updates yield accumulator. No multi-sig-approved variant currently exists. |
 | `claim_yield(from: Address)` | `from` | `i128` | Pays accrued yield when liquid. |
+| `get_project_investment(project_id: u32)` | none | `i128` | Cumulative USDC funded into `project_id`; 0 if never funded. |
+| `max_hbs_supply()` | none | `i128` | Hard cap on total HBS share supply enforced by `deposit` (#20). |
 | `claim_insurance(project_id: u32, recipient: Address, amount: i128)` | owner, or disabled when multi-sig is enabled | none | Critical operation; one claim per project. |
 | `claim_insurance_with_approvals(project_id: u32, recipient: Address, amount: i128, approvals: Vec<Address>)` | multi-sig signers | none | Critical operation. |
 | `set_multisig_admin(signers: Vec<Address>, threshold: u32)` | owner | none | Configures 1..10 unique signers. |
-| `clear_multisig_admin()` | owner | none | Restores owner-only critical operations. |
-| `get_multisig_admin()` | none | `(Vec<Address>, u32)` | Returns signers and threshold. |
+| `get_multisig_admin()` | none | `(Vec<Address>, u32)` | Returns signers and threshold. InvestmentVault has no `clear_multisig_admin()`. |
 | `get_expected_returns()` | none | `i128` | O(n) over registry projects. |
 | `total_assets()` | none | `i128` | Liquid USDC + investments + expected returns. |
 | `convert_to_shares(usdc_amount: i128)` | none | `i128` | ERC-4626-style conversion. |
@@ -155,6 +185,19 @@ Compliance/reporting types: `ComplianceEventData`, `ReportingSnapshotData`,
 | `take_reporting_snapshot()` | owner | none | Captures latest reporting metrics. |
 | `get_latest_snapshot()` | none | `ReportingSnapshotData` | Panics if no snapshot exists. |
 | `export_regulatory_data()` | none | `RegulatoryReport` | Includes latest snapshot and up to 50 recent events. |
+| `compact_storage()` | owner | `u32` | Removes zero-value `ProjectInvestment` entries; returns count removed (#88). |
+| `pause()` | owner | none | Blocks state-mutating operations; getters remain available (#72). |
+| `unpause()` | owner | none | Reverses `pause()`. |
+| `is_paused()` | none | `bool` | Circuit-breaker status. |
+| `set_emergency_admin(emergency_admin: Option<Address>)` | owner | none | Configures (or clears) an address that can call `emergency_pause`/`emergency_unpause` without full owner privileges (#43). |
+| `get_emergency_admin()` | none | `Option<Address>` | Currently configured emergency admin, if any. |
+| `emergency_pause(caller: Address)` | `caller` must be the configured emergency admin | none | Pauses without owner auth (#43). |
+| `emergency_unpause(caller: Address)` | `caller` must be the configured emergency admin | none | Unpauses without owner auth (#43). |
+| `health_check()` | none | `HealthStatus` | Consolidated status snapshot for monitoring integrations (#77). |
+| `state_version()` | none | `u32` | Schema version supported by this contract build. |
+| `stored_state_version()` | none | `u32` | Schema version recorded in instance storage; 0 for unversioned deployments. |
+| `migrate_state(from_version: u32)` | owner | `u32` | Migrates storage from `from_version` to the current schema version. |
+| `upgrade(new_wasm_hash: BytesN<32>)` | owner | none | Deploys new contract code at the current address. |
 
 ## Batch Operation Limits
 
