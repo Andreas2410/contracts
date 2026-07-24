@@ -81,6 +81,10 @@ pub enum VaultError {
     DepositLocked = 36,
     /// Caller is neither the owner nor the configured emergency admin.
     NotEmergencyAdmin = 37,
+    /// Deposit would push total HBS share supply above MAX_HBS_SUPPLY.
+    MaxSupplyExceeded = 38,
+    /// Attempted to fund a project owned by the vault's own admin (#14).
+    SelfFundingNotAllowed = 39,
 }
 
 #[contracttype]
@@ -205,6 +209,19 @@ pub struct HBSTokenInfo {
     pub decimals: u32,
     /// Whether the admin has enabled secondary trading.
     pub trading_enabled: bool,
+}
+
+/// Consolidated operational status for monitoring/health-check integrations (#77).
+///
+/// Bundles the getters an off-chain monitor would otherwise have to poll
+/// individually into a single call.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct HealthStatus {
+    pub state_version: u32,
+    pub is_paused: bool,
+    pub utilization_bps: u32,
+    pub has_emergency_admin: bool,
 }
 
 /// A pending withdrawal claim created when vault liquidity is insufficient (#3).

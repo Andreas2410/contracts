@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, panic_with_error, token::Client as TokenClient, Address, Env, String,
-    Vec,
+    contract, contractimpl, panic_with_error, token::Client as TokenClient, Address, BytesN, Env,
+    String, Vec,
 };
 use stellar_access::ownable::{get_owner, set_owner, transfer_ownership as ownable_transfer_ownership, Ownable};
 use stellar_macros::only_owner;
@@ -26,8 +26,8 @@ mod storage;
 mod logic;
 
 pub use types::{
-    ArchiveSummary, CertificationStatus, DataKey, ProjectData, Proposal, RegistryError,
-    ScoreHistoryEntry,
+    ArchiveSummary, CertificationStatus, DataKey, HealthStatus, ProjectData, Proposal,
+    RegistryError, ScoreHistoryEntry,
 };
 
 /// Minimum voting period in seconds (~1 day at 5s/ledger, ≈ 17280 ledgers) (#134).
@@ -111,7 +111,13 @@ impl ProjectRegistry {
 
     /// Create a new project. `maturity_date` is a Unix timestamp (seconds);
     /// pass 0 to create an open-ended project (#127).
-    pub fn create_project(env: Env, creator: Address, uri: String, maturity_date: u64) -> u32 {
+    pub fn create_project(
+        env: Env,
+        creator: Address,
+        uri: String,
+        maturity_date: u64,
+        metadata_hash: BytesN<32>,
+    ) -> u32 {
         require_not_paused(&env);
         require_current_state(&env);
         creator.require_auth();
@@ -192,6 +198,7 @@ impl ProjectRegistry {
             last_update_timestamp: 0,
             status: types::ProjectStatus::Pending,
             created_at: env.ledger().timestamp(),
+            metadata_hash: metadata_hash.clone(),
         };
 
         env.storage()
@@ -297,6 +304,20 @@ impl ProjectRegistry {
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound))
     }
 
+    /// Return true if `candidate_hash` matches the metadata hash recorded for
+    /// `project_id` at creation time (#44). Callers hash the metadata content
+    /// they fetched from the project's `uri` off-chain and pass it here to get
+    /// trustless proof the content matches what the creator committed to.
+    pub fn verify_metadata_hash(env: Env, project_id: u32, candidate_hash: BytesN<32>) -> bool {
+        require_current_state(&env);
+        let project: ProjectData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Project(project_id))
+            .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+        project.metadata_hash == candidate_hash
+    }
+
     /// Return the current project counter (equals the highest assigned project ID).
     /// Returns 0 when no projects have been created yet.
     pub fn total_projects(env: Env) -> u32 {
@@ -305,6 +326,35 @@ impl ProjectRegistry {
             .instance()
             .get(&DataKey::ProjectCounter)
             .unwrap_or(0)
+    }
+
+    /// Return a consolidated operational-status snapshot for monitoring tools (#77).
+    ///
+    /// Bundles state_version, is_paused, total_projects, and whether an
+    /// emergency admin is configured into a single call, so monitoring/alerting
+    /// integrations don't need to poll each getter separately.
+    pub fn health_check(env: Env) -> HealthStatus {
+        let is_paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        let has_emergency_admin: bool = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&DataKey::EmergencyAdmin)
+            .is_some();
+        let total_projects: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProjectCounter)
+            .unwrap_or(0);
+        HealthStatus {
+            state_version: read_state_version(&env),
+            is_paused,
+            total_projects,
+            has_emergency_admin,
+        }
     }
 
     /// Update both `credit_quality` and `green_impact` for `project_id`. Admin-only.
