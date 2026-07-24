@@ -444,6 +444,40 @@ impl ProjectRegistry {
         result
     }
 
+    /// Return up to `limit` non-archived projects starting after the first
+    /// `offset` project IDs, ordered by ascending project ID (#269).
+    ///
+    /// Ordering is stable across calls as long as no projects are created or
+    /// archived in between: paging through `offset = 0, limit, 2*limit, ...`
+    /// visits every non-archived project exactly once, in the same order
+    /// `get_all_projects` would return them.
+    pub fn get_projects_page(env: Env, offset: u32, limit: u32) -> Vec<(u32, ProjectData)> {
+        require_current_state(&env);
+        let counter: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProjectCounter)
+            .unwrap_or(0);
+        let mut result = Vec::new(&env);
+        if limit == 0 {
+            return result;
+        }
+        let start = offset.saturating_add(1);
+        let end = start.saturating_add(limit).min(counter.saturating_add(1));
+        for i in start..end {
+            if let Some(project) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, ProjectData>(&DataKey::Project(i))
+            {
+                if project.status != types::ProjectStatus::Archived {
+                    result.push_back((i, project));
+                }
+            }
+        }
+        result
+    }
+
     /// Return all projects including archived ones (#26).
     pub fn get_all_projects_with_archived(env: Env) -> Vec<(u32, ProjectData)> {
         require_current_state(&env);
