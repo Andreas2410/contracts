@@ -309,6 +309,19 @@ pub fn registry_unpaused(env: &Env) {
     RegistryUnpaused {}.publish(env);
 }
 
+/// Emitted when the admin sets or clears the emergency-admin address (#43).
+#[contractevent]
+pub struct EmergencyAdminChanged {
+    pub new_emergency_admin: Option<Address>,
+}
+
+pub fn emergency_admin_changed(env: &Env, new_emergency_admin: Option<Address>) {
+    EmergencyAdminChanged {
+        new_emergency_admin,
+    }
+    .publish(env);
+}
+
 /// Emitted when the admin replaces the whitelister address (#76).
 #[contractevent]
 pub struct WhitelisterChanged {

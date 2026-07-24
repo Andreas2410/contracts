@@ -151,18 +151,18 @@
                 "map": [
                   {
                     "key": {
-                      "symbol": "archived"
-                    },
-                    "val": {
-                      "bool": false
-                    }
-                  },
-                  {
-                    "key": {
                       "symbol": "certification_status"
                     },
                     "val": {
                       "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "created_at"
+                    },
+                    "val": {
+                      "u64": "0"
                     }
                   },
                   {
@@ -207,6 +207,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "status"
+                    },
+                    "val": {
+                      "u32": 0
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "uri"
                     },
                     "val": {
@@ -219,7 +227,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 518400
       },
       {
         "entry": {
