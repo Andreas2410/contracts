@@ -65,6 +65,16 @@ const YIELD_SCALE: i128 = 1_000_000_000_000_000_000; // 1e18
 /// Basis points deducted from each deposit as an insurance premium (#135).
 /// 50 bps = 0.5 % of deposit amount.
 const INSURANCE_PREMIUM_BPS: i128 = 50;
+
+/// Maximum total supply of HBS shares (7 decimals) (#20).
+///
+/// The vault's deposit mechanism already naturally limits supply based on USDC
+/// liquidity, but an explicit cap provides a predictable upper bound for
+/// integrators and rules out theoretical infinite minting. Set well above
+/// MAX_DEPOSIT (a single deposit can mint at most ~MAX_DEPOSIT shares) so
+/// ordinary single deposits are never affected by it in practice; it only
+/// bites once accumulated supply across many deposits approaches the cap.
+const MAX_HBS_SUPPLY: i128 = 10_000_000_000 * 10_000_000; // 10 billion shares
 const MAX_MULTISIG_SIGNERS: u32 = 10;
 const STATE_VERSION: u32 = 1;
 
@@ -80,8 +90,8 @@ mod registry_interface {
 }
 
 pub use types::{
-    CarbonCreditCalculation, ComplianceEventData, HBSTokenInfo, PortfolioInfo, QueuedClaim,
-    RegulatoryReport, ReportingSnapshotData, VaultError, VaultKey,
+    CarbonCreditCalculation, ComplianceEventData, HBSTokenInfo, HealthStatus, PortfolioInfo,
+    QueuedClaim, RegulatoryReport, ReportingSnapshotData, VaultError, VaultKey,
 };
 pub use wormhole::{BridgeDataKey, BridgeTransferPayload};
 
@@ -345,6 +355,12 @@ impl InvestmentVault {
 
         let shares = Self::convert_to_shares(env.clone(), investable);
 
+        // Enforce the max HBS supply cap before any transfers (#20).
+        let total_shares = Base::total_supply(&env);
+        if total_shares + shares > MAX_HBS_SUPPLY {
+            panic_with_error!(&env, VaultError::MaxSupplyExceeded);
+        }
+
         let usdc_sac: Address = env.storage().instance().get(&VaultKey::UsdcSac).unwrap();
         let token = soroban_sdk::token::TokenClient::new(&env, &usdc_sac);
         token.transfer(&from, env.current_contract_address(), &usdc_amount);
@@ -425,6 +441,30 @@ impl InvestmentVault {
             return 0;
         }
         (total_investments * 10_000 / total_actual) as u32
+    }
+
+    /// Return a consolidated operational-status snapshot for monitoring tools (#77).
+    ///
+    /// Bundles state_version, is_paused, get_utilization_bps, and whether an
+    /// emergency admin is configured into a single call, so monitoring/alerting
+    /// integrations don't need to poll each getter separately.
+    pub fn health_check(env: Env) -> HealthStatus {
+        let is_paused: bool = env
+            .storage()
+            .instance()
+            .get(&VaultKey::Paused)
+            .unwrap_or(false);
+        let has_emergency_admin: bool = env
+            .storage()
+            .instance()
+            .get::<_, Address>(&VaultKey::EmergencyAdmin)
+            .is_some();
+        HealthStatus {
+            state_version: read_state_version(&env),
+            is_paused,
+            utilization_bps: Self::get_utilization_bps(env.clone()),
+            has_emergency_admin,
+        }
     }
 
     /// Burn `shares_amount` HBS shares and return USDC to `from`.
@@ -939,6 +979,11 @@ impl InvestmentVault {
         }
     }
 
+    /// Return the maximum total HBS share supply this contract build will ever mint (#20).
+    pub fn max_hbs_supply(_env: Env) -> i128 {
+        MAX_HBS_SUPPLY
+    }
+
     /// Return the total USDC amount currently invested in `project_id` from this vault.
     pub fn get_project_investment(env: Env, project_id: u32) -> i128 {
         require_current_state(&env);
@@ -1444,6 +1489,15 @@ fn fund_project_internal(env: Env, project_id: u32, amount: i128) {
     // if the ID is unknown, so a separate bounds-check cross-contract call is
     // redundant and adds significant gas overhead (#87).
     let project = registry.get_project(&project_id);
+
+    // Prevent the vault admin from funding a project they themselves own (#14).
+    // fund_project/fund_project_with_approvals/batch_fund_projects all funnel
+    // through here and are admin-gated, so without this check the admin could
+    // create a project as themselves in the registry and self-fund it, moving
+    // vault USDC to their own address disguised as legitimate project funding.
+    if Some(project.owner.clone()) == get_owner(&env) {
+        panic_with_error!(&env, VaultError::SelfFundingNotAllowed);
+    }
 
     let min_credit: u32 = env
         .storage()
