@@ -375,10 +375,12 @@ impl InvestmentVault {
             .persistent()
             .get(&VaultKey::TotalDeposited(from.clone()))
             .unwrap_or(0);
+        let key = VaultKey::TotalDeposited(from.clone());
         env.storage().persistent().set(
-            &VaultKey::TotalDeposited(from.clone()),
+            &key,
             &(prev_dep + usdc_amount),
         );
+        env.storage().persistent().extend_ttl(&key, 17280, 518400); // Add rent check/extend
 
         // Update cached total assets: liquid increases by full usdc_amount (#81, #85)
         let cached_ta: i128 = env
