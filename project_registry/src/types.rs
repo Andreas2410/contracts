@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, String};
+use soroban_sdk::{contracterror, contracttype, Address, BytesN, String};
 
 /// A timestamped snapshot of a project's scores, for on-chain history tracking (#123).
 #[contracttype]
@@ -136,6 +136,12 @@ pub struct ProjectData {
     /// `migrate_state`) must backfill this field, e.g. from `last_update_timestamp`
     /// or 0, since it cannot be reconstructed from on-chain data otherwise.
     pub created_at: u64,
+    /// Content hash (e.g. sha256) of the off-chain metadata pointed to by `uri` (#44).
+    ///
+    /// Lets callers verify metadata hasn't been tampered with by hashing the
+    /// fetched content and comparing it against this value (see
+    /// `verify_metadata_hash`), without trusting the off-chain host.
+    pub metadata_hash: BytesN<32>,
 }
 
 /// Compact archive record stored when a project's full data is compacted (#73).
@@ -204,4 +210,17 @@ pub enum DataKey {
     /// Optional emergency-admin address that may pause/unpause without
     /// holding full owner privileges (#43). Unset means no emergency admin.
     EmergencyAdmin,
+}
+
+/// Consolidated operational status for monitoring/health-check integrations (#77).
+///
+/// Bundles the getters an off-chain monitor would otherwise have to poll
+/// individually into a single call.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct HealthStatus {
+    pub state_version: u32,
+    pub is_paused: bool,
+    pub total_projects: u32,
+    pub has_emergency_admin: bool,
 }
