@@ -232,6 +232,69 @@ fn test_multisig_batch_fund_projects() {
 }
 
 #[test]
+fn test_batch_fund_projects_rolls_back_all_events_and_state_on_later_panic() {
+    // #271: batch_fund_projects funds project1 (valid) then project2 (invalid
+    // — exceeds available deployable USDC), panicking partway through.
+    // Soroban transactions are atomic, so project1's transfer, storage
+    // update, and ProjectFunded event must ALL be rolled back too, not just
+    // left half-applied.
+    let s = setup();
+    let signer1 = Address::generate(&s.env);
+    let signer2 = Address::generate(&s.env);
+    let investor = Address::generate(&s.env);
+    let creator1 = Address::generate(&s.env);
+    let creator2 = Address::generate(&s.env);
+
+    s.vault_client.set_multisig_admin(
+        &soroban_sdk::vec![&s.env, signer1.clone(), signer2.clone()],
+        &2u32,
+    );
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator1, &true);
+    registry_client.set_whitelist(&creator2, &true);
+    let project1 = registry_client.create_project(
+        &creator1,
+        &String::from_str(&s.env, "ipfs://QmRollback1"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    let project2 = registry_client.create_project(
+        &creator2,
+        &String::from_str(&s.env, "ipfs://QmRollback2"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    let assets_before = s.vault_client.total_assets();
+
+    // project1's funding is well within budget; project2's request exceeds
+    // the total deployable USDC, so the second call inside the loop panics.
+    let result = s.vault_client.try_batch_fund_projects(
+        &soroban_sdk::vec![
+            &s.env,
+            (project1, 100_0000000i128),
+            (project2, 10_000_0000000i128),
+        ],
+        &soroban_sdk::vec![&s.env, signer1, signer2],
+    );
+    assert!(result.is_err());
+
+    // Nothing from project1's funding should have taken effect.
+    assert_eq!(s.vault_client.get_project_investment(&project1), 0);
+    assert_eq!(s.vault_client.total_assets(), assets_before);
+
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(
+        events.events().is_empty(),
+        "expected no events to survive the panicking batch call, got {:?}",
+        events.events()
+    );
+}
+
+#[test]
 #[should_panic]
 fn test_multisig_rejects_insufficient_funding_approvals() {
     let s = setup();
@@ -279,6 +342,41 @@ fn bench_vault_batch_deposit_two_accounts() {
         instructions
     );
     assert!(instructions <= 100_000_000);
+}
+
+#[test]
+fn bench_batch_deposit_vs_equivalent_single_deposits() {
+    // #270: compare gas cost of one batch_deposit call against N single
+    // deposit() calls totaling the same aggregate amount. cost_estimate()
+    // only reflects the *last* top-level invocation (per soroban-sdk docs),
+    // so the single-deposit total is accumulated per-call inside the loop.
+    const PER_DEPOSIT: i128 = 1_000_0000000i128;
+    const N: usize = 2;
+
+    let batch = setup();
+    let mut investors = soroban_sdk::vec![&batch.env];
+    for _ in 0..N {
+        let investor = Address::generate(&batch.env);
+        mint_usdc(&batch.env, &batch.usdc_sac, &investor, PER_DEPOSIT);
+        investors.push_back((investor, PER_DEPOSIT));
+    }
+    batch.vault_client.batch_deposit(&investors);
+    let batch_instructions = batch.env.cost_estimate().resources().instructions;
+
+    let single = setup();
+    let mut single_total_instructions: u64 = 0;
+    for _ in 0..N {
+        let investor = Address::generate(&single.env);
+        mint_usdc(&single.env, &single.usdc_sac, &investor, PER_DEPOSIT);
+        single.vault_client.deposit(&investor, &PER_DEPOSIT);
+        single_total_instructions += single.env.cost_estimate().resources().instructions as u64;
+    }
+
+    std::println!(
+        "bench_batch_deposit_vs_equivalent_single_deposits: batch({N} accounts)={batch_instructions} instructions, {N} single deposits total={single_total_instructions} instructions"
+    );
+    assert!(batch_instructions <= 100_000_000);
+    assert!((single_total_instructions as u32) <= 100_000_000);
 }
 
 #[test]
