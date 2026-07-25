@@ -1,4 +1,4 @@
-.PHONY: build test test-vault test-registry check-interface-docs check-event-field-types install-hooks deploy-testnet
+.PHONY: build test test-vault test-registry check-interface-docs check-event-field-types test-gas-budget-check install-hooks deploy-testnet
 
 build:
 	stellar contract build
@@ -23,6 +23,9 @@ check-interface-docs:
 
 check-event-field-types:
 	python3 scripts/check_event_field_types.py
+
+test-gas-budget-check:
+	python3 -m unittest discover -s scripts/tests
 
 deploy-testnet: build
 	@mkdir -p deploy
