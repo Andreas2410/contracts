@@ -27,6 +27,8 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Install Stellar CLI
         run: |
@@ -53,6 +55,9 @@ jobs:
 
       - name: Test
         run: cargo test --all --quiet
+
+      - name: Test check_gas_budgets.py (#250)
+        run: make test-gas-budget-check
 
       - name: Gas profile and budgets (#86, #246)
         run: |
@@ -88,6 +93,29 @@ jobs:
             exit 1
           fi
           echo "All contracts within budget."
+
+  notification-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: notification-service
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (eslint) (#248)
+        run: npm run lint
+
+      - name: Format check (prettier) (#248)
+        run: npm run format:check
+
   security:
     runs-on: ubuntu-latest
     steps:
@@ -98,6 +126,8 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
@@ -129,6 +159,8 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Install Stellar CLI
         run: |
@@ -201,6 +233,8 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Generate Documentation
         run: |
