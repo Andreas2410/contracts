@@ -15,7 +15,9 @@ function makeHttpServer(): Server {
 }
 
 function makeStore(): Store & { close: ReturnType<typeof vi.fn> } {
-  return { close: vi.fn() } as unknown as Store & { close: ReturnType<typeof vi.fn> };
+  return { close: vi.fn() } as unknown as Store & {
+    close: ReturnType<typeof vi.fn>;
+  };
 }
 
 describe("createShutdownHandler", () => {

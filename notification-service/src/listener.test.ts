@@ -100,7 +100,8 @@ describe("decodeScoreChanged", () => {
   });
 
   it("returns null when a required data field is missing instead of coercing to NaN", () => {
-    const { new_rate_bps: _drop, ...incomplete } = FULL_SCORES;
+    const incomplete: Partial<typeof FULL_SCORES> = { ...FULL_SCORES };
+    delete incomplete.new_rate_bps;
     const event = buildScoreChangedEvent(
       ["score_changed", 7],
       buildDataMap(incomplete),
@@ -111,13 +112,20 @@ describe("decodeScoreChanged", () => {
   it("returns null when data is a Vec instead of the expected Map", () => {
     const event = buildScoreChangedEvent(
       ["score_changed", 7],
-      xdr.ScVal.scvVec(Object.values(FULL_SCORES).map((v) => nativeToScVal(v, { type: "u32" }))),
+      xdr.ScVal.scvVec(
+        Object.values(FULL_SCORES).map((v) =>
+          nativeToScVal(v, { type: "u32" }),
+        ),
+      ),
     );
     expect(decodeScoreChanged(event, LEDGER, TIMESTAMP)).toBeNull();
   });
 
   it("returns null when data is void", () => {
-    const event = buildScoreChangedEvent(["score_changed", 7], xdr.ScVal.scvVoid());
+    const event = buildScoreChangedEvent(
+      ["score_changed", 7],
+      xdr.ScVal.scvVoid(),
+    );
     expect(decodeScoreChanged(event, LEDGER, TIMESTAMP)).toBeNull();
   });
 });

@@ -8,7 +8,10 @@ export interface ApiOptions {
   rateLimit?: Partial<RateLimitOptions>;
 }
 
-export function createApi(store: Store, options: ApiOptions = {}): express.Application {
+export function createApi(
+  store: Store,
+  options: ApiOptions = {},
+): express.Application {
   const app = express();
   app.use(express.json());
 

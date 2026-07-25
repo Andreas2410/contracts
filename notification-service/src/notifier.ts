@@ -128,7 +128,10 @@ export class Notifier {
   }
 
   /** Unique key identifying a specific on-chain ScoreChanged event delivered to one investor. */
-  private recipientKey(event: ScoreChangedEvent, investorAddress: string): string {
+  private recipientKey(
+    event: ScoreChangedEvent,
+    investorAddress: string,
+  ): string {
     return [
       event.project_id,
       event.ledger,

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Notifier } from "./notifier";
 import { Store } from "./db";
-import { ScoreChangedEvent, NotificationPreference, ServiceConfig } from "./types";
+import {
+  ScoreChangedEvent,
+  NotificationPreference,
+  ServiceConfig,
+} from "./types";
 
 const config: ServiceConfig = {
   rpc_url: "https://example.invalid",
@@ -21,7 +25,9 @@ const preference: NotificationPreference = {
   updated_at: new Date(0).toISOString(),
 };
 
-function makeEvent(overrides: Partial<ScoreChangedEvent> = {}): ScoreChangedEvent {
+function makeEvent(
+  overrides: Partial<ScoreChangedEvent> = {},
+): ScoreChangedEvent {
   return {
     project_id: 1,
     old_credit_quality: 50,
