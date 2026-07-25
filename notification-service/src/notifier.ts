@@ -2,10 +2,21 @@ import nodemailer from "nodemailer";
 import { ScoreChangedEvent, WebhookPayload, ServiceConfig } from "./types";
 import { Store } from "./db";
 
+/** Upper bound on tracked dedup keys, so long-running processes don't grow unbounded. */
+const MAX_TRACKED_NOTIFICATIONS = 5000;
+
 export class Notifier {
   private config: ServiceConfig;
   private store: Store;
   private transporter?: nodemailer.Transporter;
+  /**
+   * Keys of (event, investor) pairs already successfully notified, to guard
+   * against redelivery from the listener. Recorded per-investor and only
+   * after a successful send, so a delivery failure for one investor doesn't
+   * suppress a retry for them, and a redelivery doesn't re-notify investors
+   * who already received it.
+   */
+  private notifiedRecipients: Set<string> = new Set();
 
   constructor(config: ServiceConfig, store: Store) {
     this.config = config;
@@ -40,6 +51,14 @@ export class Notifier {
 
       if (!hasEmail && !hasWebhook) continue;
 
+      const recipientKey = this.recipientKey(event, addr);
+      if (this.notifiedRecipients.has(recipientKey)) {
+        console.log(
+          `[notifier] Skipping duplicate notification to ${addr} for project #${event.project_id} at ledger ${event.ledger}`,
+        );
+        continue;
+      }
+
       const subject = `[Heliobond] Score change for project #${event.project_id}`;
       const text = this.formatEmailText(event, addr);
 
@@ -50,6 +69,7 @@ export class Notifier {
         if (hasWebhook && pref.webhook_url) {
           await this.sendWebhook(pref.webhook_url, event, addr);
         }
+        this.rememberRecipient(recipientKey);
       } catch (err) {
         console.error(`[notifier] Failed to notify ${addr}:`, err);
       }
@@ -105,6 +125,32 @@ export class Notifier {
       );
     }
     console.log(`[notifier] Webhook sent to ${url} (${response.status})`);
+  }
+
+  /** Unique key identifying a specific on-chain ScoreChanged event delivered to one investor. */
+  private recipientKey(
+    event: ScoreChangedEvent,
+    investorAddress: string,
+  ): string {
+    return [
+      event.project_id,
+      event.ledger,
+      event.old_credit_quality,
+      event.new_credit_quality,
+      event.old_green_impact,
+      event.new_green_impact,
+      event.old_rate_bps,
+      event.new_rate_bps,
+      investorAddress,
+    ].join(":");
+  }
+
+  private rememberRecipient(key: string): void {
+    this.notifiedRecipients.add(key);
+    if (this.notifiedRecipients.size > MAX_TRACKED_NOTIFICATIONS) {
+      const oldest = this.notifiedRecipients.values().next().value;
+      if (oldest !== undefined) this.notifiedRecipients.delete(oldest);
+    }
   }
 
   private formatEmailText(

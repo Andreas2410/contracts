@@ -1,4 +1,11 @@
-/** Matches the on-chain ScoreChanged event from ProjectRegistry (#131). */
+/**
+ * Matches the on-chain `score_changed` event from ProjectRegistry (#131).
+ * All fields are required — the on-chain event always carries every value
+ * (see EVENTS.md), and `listener.ts` rejects any payload that doesn't decode
+ * to all of these as finite numbers rather than admitting nulls/NaN here.
+ * `project_id` is the event's only topic field; the rest arrive as a Map
+ * keyed by field name (the `#[contractevent]` macro's default data format).
+ */
 export interface ScoreChangedEvent {
   project_id: number;
   old_credit_quality: number;

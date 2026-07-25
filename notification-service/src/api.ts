@@ -1,10 +1,30 @@
 import express from "express";
+import rateLimit, { Options as RateLimitOptions } from "express-rate-limit";
 import { Store } from "./db";
 import { NotificationPreference } from "./types";
 
-export function createApi(store: Store): express.Application {
+export interface ApiOptions {
+  /** Overrides for the public rate limiter (mainly for tests). */
+  rateLimit?: Partial<RateLimitOptions>;
+}
+
+export function createApi(
+  store: Store,
+  options: ApiOptions = {},
+): express.Application {
   const app = express();
   app.use(express.json());
+
+  // Basic rate limiting to prevent abuse of these publicly exposed routes.
+  app.use(
+    rateLimit({
+      windowMs: 15 * 60 * 1000,
+      limit: 100,
+      standardHeaders: true,
+      legacyHeaders: false,
+      ...options.rateLimit,
+    }),
+  );
 
   // GET /health — health check
   app.get("/health", (_req, res) => {
