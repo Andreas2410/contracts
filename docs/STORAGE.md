@@ -18,6 +18,77 @@ See [ADR-002](../adr/002-storage-patterns.md) for the rationale behind this part
 
 ---
 
+## Storage key prefix summary (#243)
+
+Every storage key prefix across both contracts, its Rust value type, storage tier, and
+the contract/module that owns it. This is a flat index for quick lookup; see the
+per-contract sections below for field-level detail, size estimates, and access patterns.
+
+| Prefix | Rust type | Tier | Owner |
+|--------|-----------|------|-------|
+| `StateVersion` | `u32` | Instance | `project_registry` |
+| `Whitelister` | `Address` | Instance | `project_registry` |
+| `ProjectCounter` | `u32` | Instance | `project_registry` |
+| `ProposalCounter` | `u32` | Instance | `project_registry` |
+| `MultiSigSigners` | `Vec<Address>` | Instance | `project_registry` |
+| `MultiSigThreshold` | `u32` | Instance | `project_registry` |
+| `Paused` | `bool` | Instance | `project_registry` |
+| `EmergencyAdmin` | `Option<Address>` | Instance | `project_registry` |
+| `Project(u32)` | `ProjectData` | Persistent | `project_registry` |
+| `Whitelist(Address)` | `bool` | Persistent | `project_registry` |
+| `Proposal(u32)` | `Proposal` | Persistent | `project_registry` |
+| `HasVoted(u32, Address)` | `bool` | Persistent | `project_registry` |
+| `Collateral(u32, Address)` | `i128` | Persistent | `project_registry` |
+| `CreatorReputation(Address)` | `u32` | Persistent | `project_registry` |
+| `Arch(u32)` | `ArchiveSummary` | Persistent | `project_registry` |
+| `ScoreHistorySlot(u32, u32)` | `ScoreHistoryEntry` | Persistent | `project_registry` |
+| `ScoreHistoryTotal(u32)` | `u32` | Persistent | `project_registry` |
+| `StateVersion` | `u32` | Instance | `investment_vault` |
+| `UsdcSac` | `Address` | Instance | `investment_vault` |
+| `Registry` | `Address` | Instance | `investment_vault` |
+| `CachedTotalAssets` | `i128` | Instance | `investment_vault` |
+| `ManagementFeeBps` | `u32` | Instance | `investment_vault` |
+| `ManagementFeeRecipient` | `Address` | Instance | `investment_vault` |
+| `TradingEnabled` | `bool` | Instance | `investment_vault` |
+| `MinCreditQuality` | `u32` | Instance | `investment_vault` |
+| `MinGreenImpact` | `u32` | Instance | `investment_vault` |
+| `Bridge` | `Address` | Instance | `investment_vault` |
+| `FlashLoanFee` | `i128` | Instance | `investment_vault` |
+| `CarbonOracle` | `Address` | Instance | `investment_vault` |
+| `CarbonCreditPrice` | `i128` | Instance | `investment_vault` |
+| `MaxTransactionAmount` | `i128` | Instance | `investment_vault` |
+| `MultiSigSigners` | `Vec<Address>` | Instance | `investment_vault` |
+| `MultiSigThreshold` | `u32` | Instance | `investment_vault` |
+| `Paused` | `bool` | Instance | `investment_vault` |
+| `ComplianceEventCounter` | `u64` | Instance | `investment_vault` |
+| `ReportingSnapshot` | `ReportingSnapshotData` | Instance | `investment_vault` |
+| `EmergencyAdmin` | `Option<Address>` | Instance | `investment_vault` |
+| `CachedExpectedReturns` | `i128` | Persistent (dead — never read, see Migration notes) | `investment_vault` |
+| `TotalInvestments` | `i128` | Persistent | `investment_vault` |
+| `ProjectInvestment(u32)` | `i128` | Persistent | `investment_vault` |
+| `YieldPerShareAccum` | `i128` | Persistent | `investment_vault` |
+| `YieldDebt(Address)` | `i128` | Persistent | `investment_vault` |
+| `InsuranceFund` | `i128` | Persistent | `investment_vault` |
+| `InsuranceClaimed(u32)` | `bool` | Persistent | `investment_vault` |
+| `TotalDeposited(Address)` | `i128` | Persistent | `investment_vault` |
+| `QueueHead` | `u64` | Persistent | `investment_vault` |
+| `QueueTail` | `u64` | Persistent | `investment_vault` |
+| `QueueEntry(u64)` | `QueuedClaim` | Persistent | `investment_vault` |
+| `CarbonCreditBalance(Address)` | `i128` | Persistent | `investment_vault` |
+| `ComplianceEvent(u64)` | `ComplianceEventData` | Persistent | `investment_vault` |
+| `LastDeposit(Address)` | `u32` | Persistent | `investment_vault` |
+| `WormholeCore` | `Address` | Instance | `investment_vault` (`BridgeDataKey`) |
+| `TrustedEmitter(u32, BytesN<32>)` | `bool` | Persistent | `investment_vault` (`BridgeDataKey`) |
+| `ConsumedVaa(BytesN<32>)` | `bool` | Persistent | `investment_vault` (`BridgeDataKey`) |
+
+`StateVersion`, `MultiSigSigners`, `MultiSigThreshold`, `Paused`, and `EmergencyAdmin` are
+independent per-contract prefixes: each contract's `DataKey`/`VaultKey` enum is scoped to
+its own instance storage, so identical prefix names on both rows never collide on-chain.
+The last three rows come from `investment_vault`'s separate `BridgeDataKey` enum, which
+lives alongside `VaultKey` for the Wormhole bridge feature.
+
+---
+
 ## Storage key encoding and size (#82)
 
 Soroban encodes `#[contracttype]` enum keys as XDR `SCVal`. The variant name is stored as a `Symbol`; shorter names reduce per-key byte cost.
