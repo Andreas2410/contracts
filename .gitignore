@@ -2,6 +2,7 @@ target/
 issue.md
 pr.md
 __pycache__/
+node_modules/
 
 # Fuzz test snapshots (non-deterministic, generated locally)
 **/test_snapshots/test/*_fuzz.*.json

@@ -2,14 +2,13 @@ import { ServiceConfig } from "./types";
 
 export function loadConfig(): ServiceConfig {
   return {
-    rpc_url: process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org",
+    rpc_url:
+      process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org",
     network_passphrase:
       process.env.STELLAR_NETWORK_PASSPHRASE ||
       "Test SDF Network ; September 2015",
-    registry_contract_id:
-      process.env.REGISTRY_CONTRACT_ID || "",
-    vault_contract_id:
-      process.env.VAULT_CONTRACT_ID || "",
+    registry_contract_id: process.env.REGISTRY_CONTRACT_ID || "",
+    vault_contract_id: process.env.VAULT_CONTRACT_ID || "",
     db_path: process.env.DB_PATH || "./data/notifications.db",
     poll_interval_ms: parseInt(process.env.POLL_INTERVAL_MS || "30000", 10),
     from_email: process.env.FROM_EMAIL,

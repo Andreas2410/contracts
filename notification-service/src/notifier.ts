@@ -1,10 +1,5 @@
 import nodemailer from "nodemailer";
-import {
-  ScoreChangedEvent,
-  NotificationPreference,
-  WebhookPayload,
-  ServiceConfig,
-} from "./types";
+import { ScoreChangedEvent, WebhookPayload, ServiceConfig } from "./types";
 import { Store } from "./db";
 
 export class Notifier {
@@ -32,9 +27,7 @@ export class Notifier {
     const deltaCq = Math.abs(
       event.new_credit_quality - event.old_credit_quality,
     );
-    const deltaGi = Math.abs(
-      event.new_green_impact - event.old_green_impact,
-    );
+    const deltaGi = Math.abs(event.new_green_impact - event.old_green_impact);
     const maxDelta = Math.max(deltaCq, deltaGi);
 
     for (const addr of investorAddresses) {
@@ -58,10 +51,7 @@ export class Notifier {
           await this.sendWebhook(pref.webhook_url, event, addr);
         }
       } catch (err) {
-        console.error(
-          `[notifier] Failed to notify ${addr}:`,
-          err,
-        );
+        console.error(`[notifier] Failed to notify ${addr}:`, err);
       }
     }
   }
