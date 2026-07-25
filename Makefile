@@ -1,7 +1,12 @@
-.PHONY: build test test-vault test-registry check-interface-docs check-event-field-types deploy-testnet
+.PHONY: build test test-vault test-registry check-interface-docs check-event-field-types install-hooks deploy-testnet
 
 build:
 	stellar contract build
+
+# Wire scripts/hooks/pre-commit into git so `cargo fmt --check` runs before every commit (#251).
+install-hooks:
+	git config core.hooksPath scripts/hooks
+	@echo "Pre-commit hook installed: cargo fmt --check now runs before every commit."
 
 test:
 	cargo test

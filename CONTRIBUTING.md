@@ -24,6 +24,7 @@ git clone https://github.com/heliobond/contracts
 cd contracts
 cargo test        # run the test suite
 make build        # stellar contract build → target/wasm32v1-none/release/
+make install-hooks # install the cargo fmt --check pre-commit hook
 ```
 
 ### Editor
