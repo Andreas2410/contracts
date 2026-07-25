@@ -235,3 +235,37 @@ jobs:
           echo "| InvestmentVault | ${{ github.event.inputs.network }} | ${{ steps.deploy_vault.outputs.vault_id }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "WASM hash verification: see job logs above." >> "$GITHUB_STEP_SUMMARY"
+
+  notify-on-failure:
+    name: Notify on deploy failure
+    needs: [build-and-verify, deploy]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Post to Slack/Discord if a webhook is configured (#253)
+        if: env.NOTIFY_WEBHOOK_URL != ''
+        env:
+          NOTIFY_WEBHOOK_URL: ${{ secrets.DEPLOY_FAILURE_WEBHOOK_URL }}
+        run: |
+          curl -sf -X POST -H "Content-Type: application/json" \
+            -d "{\"text\": \"🚨 Heliobond deploy failed: ${{ github.event.inputs.network }} — run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$NOTIFY_WEBHOOK_URL"
+
+      - name: Open a tracking issue (#253)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const network = context.payload.inputs?.network || 'unknown';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Deploy failed: ${network} (run ${context.runId})`,
+              body: `The [Deploy workflow](${runUrl}) failed for network \`${network}\`.\n\n` +
+                    `Triggered by: @${context.actor}\n` +
+                    `Commit: ${context.sha}\n\n` +
+                    `Check the run logs for which step failed before retrying.`,
+              labels: ['ci', 'deployment'],
+            });
