@@ -114,6 +114,34 @@ fn test_withdraw_with_zero_supply_panics() {
 }
 
 #[test]
+fn test_zero_supply_edge_cases_are_handled_consistently() {
+    // #264: convert_to_assets() and withdraw() respond to an empty vault
+    // (total_supply == 0) via different but consistent code paths —
+    // convert_to_assets is a pure view that gracefully returns 0 rather than
+    // dividing by zero, while withdraw legitimately panics because the
+    // caller has no shares to burn. Neither corrupts state or silently
+    // succeeds. test_vault_with_zero_supply already covers convert_to_assets
+    // (and convert_to_shares) in isolation; this test asserts both
+    // behaviors together in the same empty-vault state for direct comparison.
+    let s = setup();
+    let investor = Address::generate(&s.env);
+
+    assert_eq!(s.vault_client.total_supply(), 0);
+    assert_eq!(s.vault_client.total_assets(), 0);
+
+    // convert_to_assets: graceful zero, no panic.
+    assert_eq!(s.vault_client.convert_to_assets(&500_0000000i128), 0);
+
+    // withdraw: panics because investor owns zero shares to burn.
+    let result = s.vault_client.try_withdraw(&investor, &10_0000000i128, &0);
+    assert!(result.is_err());
+
+    // Neither call should have changed vault state.
+    assert_eq!(s.vault_client.total_supply(), 0);
+    assert_eq!(s.vault_client.total_assets(), 0);
+}
+
+#[test]
 fn test_deposit_proportional_after_first() {
     let s = setup();
     let investor1 = Address::generate(&s.env);
@@ -1234,6 +1262,25 @@ fn test_set_registry_validates_new_address() {
 }
 
 #[test]
+fn test_set_trusted_emitter_persists_and_emits_event() {
+    // #267: set_trusted_emitter was previously a no-op stub (empty body,
+    // all params underscore-prefixed) — complete_bridge_transfer checks the
+    // TrustedEmitter storage this function is supposed to write, so the
+    // bridge's inbound path could never succeed. Confirm it actually persists.
+    let s = setup();
+    let emitter = BytesN::from_array(&s.env, &[3u8; 32]);
+    let chain_id = 2u32; // Ethereum
+
+    s.vault_client.set_trusted_emitter(&chain_id, &emitter, &true);
+
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(!events.events().is_empty());
+
+    // Unmarking must also persist (and not panic).
+    s.vault_client.set_trusted_emitter(&chain_id, &emitter, &false);
+}
+
+#[test]
 #[should_panic]
 fn test_set_registry_is_admin_only() {
     let s = setup();
@@ -1659,5 +1706,82 @@ fn test_withdrawal_rate_limiting_transfer_locked() {
 
     // Try to withdraw from investor2 in the same ledger sequence -> should panic
     s.vault_client.withdraw(&investor2, &shares, &0);
+}
+
+// ── Consolidated admin-only enumeration (#266) ─────────────────────────────────
+//
+// Several admin-only functions already have their own dedicated
+// should_panic test (e.g. test_set_registry_is_admin_only). This test
+// instead enumerates every #[only_owner] entry point on InvestmentVault in
+// one place and confirms each rejects a non-admin caller, so a future
+// #[only_owner] entry point that's accidentally left off both this list and
+// its own dedicated test won't go unnoticed.
+#[test]
+fn test_all_only_owner_functions_reject_non_admin_caller() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+
+    // Restrict auth to `stranger` for an unrelated invocation, so every
+    // #[only_owner] call below has no matching auth entry for the real
+    // owner and must fail at the `owner.require_auth()` check.
+    s.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &stranger,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &s.vault_address,
+            fn_name: "is_paused",
+            args: soroban_sdk::vec![&s.env],
+            sub_invokes: &[],
+        },
+    }]);
+
+    let addr = || Address::generate(&s.env);
+    let hash32 = BytesN::from_array(&s.env, &[0u8; 32]);
+
+    let results: soroban_sdk::Vec<bool> = soroban_sdk::vec![
+        &s.env,
+        s.vault_client.try_migrate_state(&1u32).is_err(),
+        s.vault_client.try_fund_project(&1u32, &1i128).is_err(),
+        s.vault_client.try_receive_yield(&addr(), &1i128).is_err(),
+        s.vault_client
+            .try_claim_insurance(&1u32, &addr(), &1i128)
+            .is_err(),
+        s.vault_client
+            .try_set_multisig_admin(&soroban_sdk::vec![&s.env, addr()], &1u32)
+            .is_err(),
+        s.vault_client
+            .try_set_management_fee(&1u32, &addr())
+            .is_err(),
+        s.vault_client.try_enable_secondary_trading().is_err(),
+        s.vault_client
+            .try_set_funding_thresholds(&1u32, &1u32)
+            .is_err(),
+        s.vault_client.try_set_registry(&addr()).is_err(),
+        s.vault_client.try_set_bridge(&addr()).is_err(),
+        s.vault_client.try_set_wormhole_core(&addr()).is_err(),
+        s.vault_client
+            .try_set_trusted_emitter(&1u32, &hash32, &true)
+            .is_err(),
+        s.vault_client.try_set_flash_loan_fee(&1i128).is_err(),
+        s.vault_client.try_set_carbon_oracle(&addr()).is_err(),
+        s.vault_client
+            .try_set_max_transaction_amount(&1i128)
+            .is_err(),
+        s.vault_client
+            .try_record_compliance_event(
+                &String::from_str(&s.env, "type"),
+                &String::from_str(&s.env, "data")
+            )
+            .is_err(),
+        s.vault_client.try_take_reporting_snapshot().is_err(),
+        s.vault_client.try_pause().is_err(),
+        s.vault_client.try_unpause().is_err(),
+        s.vault_client.try_set_emergency_admin(&None).is_err(),
+        s.vault_client.try_compact_storage().is_err(),
+        s.vault_client.try_upgrade(&hash32).is_err(),
+    ];
+
+    for (i, rejected) in results.iter().enumerate() {
+        assert!(rejected, "only_owner function at index {i} did not reject a non-admin caller");
+    }
 }
 

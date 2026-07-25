@@ -12,6 +12,37 @@
 //! implements this trait internally; off-chain indexers and relayers SHOULD
 //! rely on the standardised events and types defined here rather than
 //! chain-specific formats.
+//!
+//! # Trust assumptions (#267)
+//!
+//! `complete_bridge_transfer` (in `lib.rs`) is the inbound path and the one
+//! that matters for security review. What's trusted vs. what the vault
+//! itself enforces:
+//!
+//! - **Trusted: the configured Wormhole core contract's guardian-set
+//!   verification.** `complete_bridge_transfer` calls
+//!   `WormholeCoreClient::verify_vaa(vaa)` on whatever address is currently
+//!   set via `set_wormhole_core` (owner-only) and takes its result at face
+//!   value. The vault does **not** independently verify guardian signatures
+//!   or guardian-set membership — a malicious or misconfigured core address
+//!   can return an arbitrary "verified" payload. `set_wormhole_core` should
+//!   only ever point at Wormhole's canonical, audited core contract for the
+//!   target network.
+//! - **Enforced by the vault: emitter allowlisting.** Even a validly-verified
+//!   VAA is rejected unless its `(source_chain, emitter_address)` pair was
+//!   explicitly marked trusted via `set_trusted_emitter` (owner-only). This
+//!   is what prevents an arbitrary Wormhole-verified message from *any*
+//!   contract on *any* chain from minting HBS — only messages from an
+//!   admin-approved emitter are accepted.
+//! - **Enforced by the vault: replay protection.** Each VAA's sha256 digest
+//!   is recorded in `ConsumedVaa` storage on first use; a repeat submission
+//!   of the same VAA panics.
+//! - **Not enforced here: emitter allowlist governance.** `set_wormhole_core`
+//!   and `set_trusted_emitter` are both plain owner-only calls with no
+//!   multi-sig requirement or timelock — a compromised owner key can point
+//!   the vault at an arbitrary "core" contract and/or trust an arbitrary
+//!   emitter, effectively minting HBS at will via the bridge. Treat these as
+//!   equivalent in sensitivity to direct minting authority.
 
 use soroban_sdk::xdr::{FromXdr, ToXdr};
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env};

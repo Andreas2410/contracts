@@ -1327,3 +1327,77 @@ fn test_transfer_ownership_emits_event() {
     );
 }
 
+// ── Consolidated admin-only enumeration (#266) ─────────────────────────────────
+//
+// Several admin-only functions already have their own dedicated
+// should_panic test (e.g. test_set_whitelister_is_admin_only). This test
+// instead enumerates every #[only_owner] entry point on ProjectRegistry in
+// one place and confirms each rejects a non-admin caller, so a future
+// #[only_owner] entry point that's accidentally left off both this list and
+// its own dedicated test won't go unnoticed.
+#[test]
+fn test_all_only_owner_functions_reject_non_admin_caller() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmAdminOnly"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    let stranger = Address::generate(&env);
+    // Restrict auth to `stranger` for an unrelated invocation, so every
+    // #[only_owner] call below has no matching auth entry for the real
+    // owner and must fail at the `owner.require_auth()` check.
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &stranger,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "total_projects",
+            args: soroban_sdk::vec![&env],
+            sub_invokes: &[],
+        },
+    }]);
+
+    let addr = || Address::generate(&env);
+    let hash32 = BytesN::from_array(&env, &[0u8; 32]);
+
+    let results: soroban_sdk::Vec<bool> = soroban_sdk::vec![
+        &env,
+        client.try_migrate_state(&1u32).is_err(),
+        client.try_archive_project(&project_id).is_err(),
+        client.try_delete_project(&project_id).is_err(),
+        client.try_compact_archive(&project_id).is_err(),
+        client
+            .try_update_impact_score(&project_id, &1u32, &1u32)
+            .is_err(),
+        client
+            .try_update_credit_quality_score(&project_id, &1u32)
+            .is_err(),
+        client
+            .try_liquidate_collateral(&project_id, &addr(), &addr())
+            .is_err(),
+        client
+            .try_set_multisig_admin(&soroban_sdk::vec![&env, addr()], &1u32)
+            .is_err(),
+        client.try_clear_multisig_admin().is_err(),
+        client.try_set_whitelister(&addr()).is_err(),
+        client.try_upgrade(&hash32).is_err(),
+        client.try_pause().is_err(),
+        client.try_unpause().is_err(),
+        client.try_set_emergency_admin(&None).is_err(),
+        client
+            .try_compact_storage(
+                &soroban_sdk::vec![&env, project_id],
+                &soroban_sdk::vec![&env, addr()]
+            )
+            .is_err(),
+    ];
+
+    for (i, rejected) in results.iter().enumerate() {
+        assert!(rejected, "only_owner function at index {i} did not reject a non-admin caller");
+    }
+}
+

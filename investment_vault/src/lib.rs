@@ -1041,13 +1041,21 @@ impl InvestmentVault {
             .set(&BridgeDataKey::WormholeCore, &core);
     }
 
+    /// Mark (or unmark) a `(chain_id, emitter_address)` pair as a trusted
+    /// Wormhole message emitter. `complete_bridge_transfer` rejects any VAA
+    /// whose emitter isn't marked trusted here (#267).
     #[only_owner]
     pub fn set_trusted_emitter(
         env: Env,
-        _chain_id: u32,
-        _emitter_address: BytesN<32>,
-        _trusted: bool,
+        chain_id: u32,
+        emitter_address: BytesN<32>,
+        trusted: bool,
     ) {
+        env.storage().persistent().set(
+            &BridgeDataKey::TrustedEmitter(chain_id, emitter_address.clone()),
+            &trusted,
+        );
+        events::trusted_emitter_set(&env, chain_id, &emitter_address, trusted);
     }
 
     pub fn initiate_bridge_transfer(
