@@ -59,7 +59,7 @@ jobs:
       - name: Test check_gas_budgets.py (#250)
         run: make test-gas-budget-check
 
-      - name: Gas profile and budgets (#86)
+      - name: Gas profile and budgets (#86, #246)
         run: |
           cargo test --all --quiet cost_estimate -- --nocapture 2>&1 | tee gas-profile.txt
           python3 scripts/check_gas_budgets.py gas-budgets.json gas-profile.txt gas-report.md

@@ -438,6 +438,37 @@ fn test_vault_deposit_cost_estimate() {
 }
 
 #[test]
+fn test_fund_project_cost_estimate() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    s.vault_client.fund_project(&project_id, &100_0000000i128);
+
+    let resources = s.env.cost_estimate().resources();
+    assert!(resources.instructions > 0);
+    let fee = s.env.cost_estimate().fee();
+    assert!(fee.total > 0);
+    std::println!(
+        "gas_budget investment_vault.fund_project instructions={} fee={}",
+        resources.instructions,
+        fee.total
+    );
+}
+
+#[test]
 fn test_initialize() {
     // With __constructor, registration IS initialization
     let env = Env::default();
