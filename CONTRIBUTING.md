@@ -141,6 +141,15 @@ Significant architectural choices are documented in [`adr/`](./adr/). Before mak
 
 ---
 
+## Seeing the whole flow end-to-end
+
+New to the codebase and want to see how the pieces fit together before diving
+into an issue? [`scripts/example_full_flow.sh`](./scripts/example_full_flow.sh)
+walks through the full happy path — whitelist a creator, create a project,
+deposit into the vault, fund the project, and certify it — against an
+already-deployed local or testnet instance, printing each `stellar contract
+invoke` call as it runs (#259).
+
 ## Deployment procedures
 
 See [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) for the automated deployment pipeline. Manual deployments must follow the same build → test → deploy → verify sequence defined in that workflow.

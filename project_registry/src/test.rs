@@ -1401,3 +1401,95 @@ fn test_all_only_owner_functions_reject_non_admin_caller() {
     }
 }
 
+// ── Fuzz targets (#257) ─────────────────────────────────────────────────────
+//
+// project_registry had no proptest-based fuzz coverage at all (unlike
+// investment_vault's test_vault_arithmetic_fuzz). Adds coverage for
+// create_project's URI length validation and set_creator_reputation's
+// 0..=100 score range, across both the accepted and rejected sides of each
+// boundary.
+
+use proptest::prelude::*;
+
+fn make_uri(total_len: usize) -> std::string::String {
+    // "ipfs://" is 7 bytes; pad the rest with filler so the full string is
+    // exactly `total_len` bytes and still has a valid scheme prefix.
+    let prefix = "ipfs://";
+    if total_len <= prefix.len() {
+        return "x".repeat(total_len);
+    }
+    let mut s = std::string::String::from(prefix);
+    s.push_str(&"a".repeat(total_len - prefix.len()));
+    s
+}
+
+proptest! {
+    #[test]
+    fn test_create_project_accepts_uris_within_valid_length_range_fuzz(
+        len in 8usize..=512usize
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let whitelister = Address::generate(&env);
+        let contract_id = env.register(ProjectRegistry, (&admin, &whitelister));
+        let client = ProjectRegistryClient::new(&env, &contract_id);
+        let creator = Address::generate(&env);
+        client.set_whitelist(&creator, &true);
+
+        let uri = String::from_str(&env, &make_uri(len));
+        let id = client.create_project(&creator, &uri, &0u64, &test_metadata_hash(&env));
+        prop_assert_eq!(id, 1);
+    }
+
+    #[test]
+    fn test_create_project_rejects_uris_outside_valid_length_range_fuzz(
+        len in prop_oneof![0usize..8usize, 513usize..1000usize]
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let whitelister = Address::generate(&env);
+        let contract_id = env.register(ProjectRegistry, (&admin, &whitelister));
+        let client = ProjectRegistryClient::new(&env, &contract_id);
+        let creator = Address::generate(&env);
+        client.set_whitelist(&creator, &true);
+
+        let uri = String::from_str(&env, &make_uri(len));
+        let result = client.try_create_project(&creator, &uri, &0u64, &test_metadata_hash(&env));
+        prop_assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_set_creator_reputation_accepts_and_stores_valid_scores_fuzz(
+        score in 0u32..=100u32
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let whitelister = Address::generate(&env);
+        let contract_id = env.register(ProjectRegistry, (&admin, &whitelister));
+        let client = ProjectRegistryClient::new(&env, &contract_id);
+        let creator = Address::generate(&env);
+
+        client.set_creator_reputation(&whitelister, &creator, &score);
+        prop_assert_eq!(client.get_creator_reputation(&creator), score);
+    }
+
+    #[test]
+    fn test_set_creator_reputation_rejects_out_of_range_scores_fuzz(
+        score in 101u32..=100_000u32
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let whitelister = Address::generate(&env);
+        let contract_id = env.register(ProjectRegistry, (&admin, &whitelister));
+        let client = ProjectRegistryClient::new(&env, &contract_id);
+        let creator = Address::generate(&env);
+
+        let result = client.try_set_creator_reputation(&whitelister, &creator, &score);
+        prop_assert!(result.is_err());
+    }
+}
+

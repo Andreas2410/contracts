@@ -1687,6 +1687,27 @@ proptest! {
             assert!(withdrawn <= deposit_amount);
         }
     }
+
+    // #256: complementary fuzz target covering the *rejected* side of
+    // deposit's amount validation — test_vault_arithmetic_fuzz above only
+    // fuzzes amounts already known to be within [MIN_DEPOSIT, MAX_DEPOSIT].
+    // Fixed-value tests (test_deposit_below_minimum_panics,
+    // test_fee_above_cap_panics, etc.) check single boundary points; this
+    // fuzzes the full out-of-range space to confirm every value rejects
+    // consistently, not just the specific values already hand-picked.
+    #[test]
+    fn test_deposit_rejects_out_of_range_amounts_fuzz(
+        amount in prop_oneof![
+            1i128..100_0000000i128,
+            1_000_000_000_0000001i128..2_000_000_000_0000000i128,
+        ]
+    ) {
+        let s = setup();
+        let investor = Address::generate(&s.env);
+        mint_usdc(&s.env, &s.usdc_sac, &investor, amount);
+        let result = s.vault_client.try_deposit(&investor, &amount);
+        prop_assert!(result.is_err());
+    }
 }
 
 #[test]
