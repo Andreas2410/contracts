@@ -1,5 +1,7 @@
 # Heliobond Contracts
 
+[![CI](https://github.com/Heliobond/contracts/actions/workflows/ci.yml/badge.svg)](https://github.com/Heliobond/contracts/actions/workflows/ci.yml)
+
 On-chain core of [Heliobond](https://heliobond.io) — a green bond platform built on Stellar. Two [Soroban](https://stellar.org/soroban) smart contracts manage the full lifecycle from project registration through investor deposits and capital disbursement.
 
 | Contract | Crate | Purpose |

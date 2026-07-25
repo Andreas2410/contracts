@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { NotificationPreference, InvestorProjectRow } from "./types";
+import { NotificationPreference } from "./types";
 
 export class Store {
   private db: Database.Database;
@@ -57,7 +57,9 @@ export class Store {
 
   getPreference(address: string): NotificationPreference | undefined {
     const row = this.db
-      .prepare("SELECT * FROM notification_preferences WHERE investor_address = ?")
+      .prepare(
+        "SELECT * FROM notification_preferences WHERE investor_address = ?",
+      )
       .get(address) as Record<string, unknown> | undefined;
     if (!row) return undefined;
     return this.rowToPreference(row);
@@ -74,14 +76,18 @@ export class Store {
 
   listPreferences(): NotificationPreference[] {
     const rows = this.db
-      .prepare("SELECT * FROM notification_preferences ORDER BY updated_at DESC")
+      .prepare(
+        "SELECT * FROM notification_preferences ORDER BY updated_at DESC",
+      )
       .all() as Record<string, unknown>[];
     return rows.map((r) => this.rowToPreference(r));
   }
 
   deletePreference(address: string): void {
     this.db
-      .prepare("DELETE FROM notification_preferences WHERE investor_address = ?")
+      .prepare(
+        "DELETE FROM notification_preferences WHERE investor_address = ?",
+      )
       .run(address);
   }
 
@@ -133,7 +139,9 @@ export class Store {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  private rowToPreference(row: Record<string, unknown>): NotificationPreference {
+  private rowToPreference(
+    row: Record<string, unknown>,
+  ): NotificationPreference {
     return {
       investor_address: row.investor_address as string,
       email: (row.email as string) || undefined,

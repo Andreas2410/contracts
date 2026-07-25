@@ -1,9 +1,4 @@
-import {
-  SorobanRpc,
-  Contract,
-  scValToNative,
-  xdr,
-} from "@stellar/stellar-sdk";
+import { SorobanRpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { ScoreChangedEvent, ServiceConfig } from "./types";
 
 const SCORE_CHANGED_TOPIC = "ScoreChanged";
@@ -62,7 +57,7 @@ async function fetchEvents(
   server: SorobanRpc.Server,
   contractId: string,
   startLedger: number,
-  endLedger: number,
+  _endLedger: number,
 ): Promise<ScoreChangedEvent[]> {
   const results: ScoreChangedEvent[] = [];
 
@@ -115,7 +110,8 @@ export async function pollScoreChanges(
     try {
       const latestLedger = await server.getLatestLedger();
       const lastProcessed = await getLastLedger();
-      const startLedger = lastProcessed > 0 ? lastProcessed + 1 : latestLedger.sequence;
+      const startLedger =
+        lastProcessed > 0 ? lastProcessed + 1 : latestLedger.sequence;
 
       if (startLedger > latestLedger.sequence) {
         return; // caught up

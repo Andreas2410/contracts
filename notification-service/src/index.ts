@@ -25,7 +25,9 @@ async function main(): Promise<void> {
   });
 
   // ── Event handler: score changed → notify investors ───────────────────
-  const handleScoreChanged = async (event: ScoreChangedEvent): Promise<void> => {
+  const handleScoreChanged = async (
+    event: ScoreChangedEvent,
+  ): Promise<void> => {
     console.log(
       `[handler] ScoreChanged: project #${event.project_id} ` +
         `CQ:${event.old_credit_quality}→${event.new_credit_quality} ` +
