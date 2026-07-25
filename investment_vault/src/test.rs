@@ -1325,6 +1325,37 @@ fn test_fund_project_panics_with_out_of_range_project_id() {
 }
 
 #[test]
+#[should_panic]
+fn test_fund_project_rejects_paused_registry() {
+    // #263: cross-contract call failure handling in fund_project's call
+    // into the linked ProjectRegistry. registry.get_project() is a getter
+    // and keeps working while the registry is paused, so this isn't a
+    // failing/panicking cross-contract call in itself — but it means the
+    // vault must explicitly check is_paused() to reject deploying new
+    // capital against a registry an admin has intentionally halted, rather
+    // than silently succeeding. (The other cross-contract-failure mode —
+    // get_project() panicking on an unknown project id — is already
+    // covered by test_fund_project_panics_with_out_of_range_project_id.)
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    let creator = Address::generate(&s.env);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmPausedRegistry"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    registry_client.pause();
+    s.vault_client.fund_project(&project_id, &100_0000000i128);
+}
+
+#[test]
 fn test_fund_project_succeeds_with_valid_project_id() {
     let s = setup();
     let investor = Address::generate(&s.env);
