@@ -216,6 +216,58 @@ fn test_get_all_projects() {
 }
 
 #[test]
+fn test_get_projects_page_returns_stable_ordering_across_pages() {
+    // #269: fetching page 1 then page 2 must never skip or duplicate a
+    // project when no writes occur in between, and must match the order
+    // get_all_projects returns them in.
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    for i in 1..=5u32 {
+        client.create_project(
+            &creator,
+            &String::from_str(&env, &std::format!("ipfs://Qm{i}")),
+            &0u64,
+            &test_metadata_hash(&env),
+        );
+    }
+
+    let page1 = client.get_projects_page(&0u32, &2u32);
+    let page2 = client.get_projects_page(&2u32, &2u32);
+    let page3 = client.get_projects_page(&4u32, &2u32);
+
+    assert_eq!(page1.len(), 2);
+    assert_eq!(page2.len(), 2);
+    assert_eq!(page3.len(), 1);
+
+    let mut paged_ids: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(&env);
+    for page in [&page1, &page2, &page3] {
+        for entry in page.iter() {
+            paged_ids.push_back(entry.0);
+        }
+    }
+
+    let all = client.get_all_projects();
+    let mut all_ids: soroban_sdk::Vec<u32> = soroban_sdk::Vec::new(&env);
+    for entry in all.iter() {
+        all_ids.push_back(entry.0);
+    }
+
+    assert_eq!(paged_ids, all_ids, "paginated ids must match get_all_projects order exactly, with no skips or duplicates");
+}
+
+#[test]
+fn test_get_projects_page_zero_limit_returns_empty() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+
+    let page = client.get_projects_page(&0u32, &0u32);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
 #[should_panic]
 fn test_update_impact_score_nonexistent_project_panics() {
     let (_env, _admin, _whitelister, client) = setup();
@@ -959,6 +1011,45 @@ mod integration {
         assert_eq!(vault.balance(&investor), investable / 2);
         // Remaining shares and balance (1990 / 2 = 995)
         assert_eq!(vault.balance(&investor), 9_950_000_000i128);
+
+        // ── Extend the flow: certify -> deposit collateral -> mature -> release (#268) ──
+
+        // Whitelister certifies the project.
+        registry.certify_project(
+            &whitelister,
+            &project_id,
+            &crate::types::CertificationStatus::Certified,
+        );
+        assert_eq!(
+            registry.get_project(&project_id).certification_status,
+            crate::types::CertificationStatus::Certified
+        );
+
+        // Project owner posts collateral (in the same USDC asset, for
+        // simplicity). project_creator already holds the 500 USDC transferred
+        // in by the earlier fund_project() call, so compare against a
+        // captured baseline rather than assuming a zero starting balance.
+        let collateral_amount = 200_0000000i128;
+        let usdc = soroban_sdk::token::TokenClient::new(&env, &usdc_sac);
+        let balance_before_collateral = usdc.balance(&project_creator);
+        StellarAssetClient::new(&env, &usdc_sac).mint(&project_creator, &collateral_amount);
+        registry.deposit_collateral(&project_id, &project_creator, &usdc_sac, &collateral_amount);
+        assert_eq!(
+            registry.get_collateral(&project_id, &usdc_sac),
+            collateral_amount
+        );
+        assert_eq!(usdc.balance(&project_creator), balance_before_collateral);
+
+        // This project was created with maturity_date = 0 ("no maturity date
+        // set"), so release_collateral's maturity check never blocks it —
+        // matches is_mature(project_id) == false throughout.
+        assert!(!registry.is_mature(&project_id));
+        registry.release_collateral(&project_id, &project_creator, &usdc_sac);
+        assert_eq!(registry.get_collateral(&project_id, &usdc_sac), 0);
+        assert_eq!(
+            usdc.balance(&project_creator),
+            balance_before_collateral + collateral_amount
+        );
     }
 }
 

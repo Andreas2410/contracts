@@ -69,6 +69,7 @@ Multi-sig errors:
 | `certify_project(caller: Address, project_id: u32, status: CertificationStatus)` | `caller` | none | Caller must be whitelister or owner. |
 | `is_mature(project_id: u32)` | none | `bool` | False for open-ended projects. |
 | `get_all_projects()` | none | `Vec<(u32, ProjectData)>` | O(n) over registered ids. |
+| `get_projects_page(offset: u32, limit: u32)` | none | `Vec<(u32, ProjectData)>` | Non-archived projects with ID > `offset`, up to `limit` entries; stable ordering when paged with no writes in between (#269). |
 | `create_proposal(proposer: Address, description: String, voting_duration_secs: u64)` | `proposer` | `u32` | Duration must be at least 86,400 seconds. |
 | `cast_vote(voter: Address, proposal_id: u32, support: bool, weight: i128)` | `voter` | none | Weight must be positive; callers must supply verified HBS balance. |
 | `execute_proposal(proposal_id: u32)` | none | `bool` | Callable after voting ends. |
