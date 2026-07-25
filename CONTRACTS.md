@@ -5,6 +5,32 @@ All functions live in the `InvestmentVault` or `ProjectRegistry` crates.
 
 ---
 
+## Glossary (#242)
+
+Domain terms used throughout this document and the rest of the `contracts` docs.
+
+| Term | Definition |
+|---|---|
+| **Credit quality score** | Oracle-set score (0–100) on a project's `ProjectData.credit_quality`, reflecting the creditworthiness of the underlying bond. Feeds into the project's interest rate via `compute_rate`; updated with `update_impact_score` or `update_credit_quality_score`. |
+| **Green impact score** | Oracle-set score (0–100) on a project's `ProjectData.green_impact`, reflecting the environmental/climate benefit of the project. Feeds into the interest rate alongside credit quality and into `calculate_carbon_credits`; updated with `update_impact_score`. |
+| **HBS token** | "Heliobond Shares" — the SEP-41 fungible token minted by `InvestmentVault` to represent an investor's proportional claim on the pooled USDC. Minted on `deposit`, burned on `withdraw`; see [Secondary Market Trading](#secondary-market-trading-issue-126) below. |
+| **Whitelister** | The address authorised to grant or revoke project-creation rights via `set_whitelist`. A separate role from the contract owner/admin. |
+| **Certification status** | `ProjectData.certification_status` (`None`, `Pending`, `Certified`, `Revoked`) — an independent attestation of a project's legitimacy, set by the whitelister or admin via `certify_project`. Distinct from the numeric credit/green scores. |
+| **Maturity date** | Unix timestamp on `ProjectData.maturity_date` after which a project is considered mature (`is_mature`). `0` means open-ended (never matures). `release_collateral` requires maturity when one is set; `compact_archive` does not check it directly — it requires the project to already be archived instead. |
+| **Interest rate (bps)** | The annualized rate, in basis points (10,000 bps = 100%), that `get_interest_rate` derives from a project's credit quality and green impact scores via `compute_rate`. |
+| **Insurance premium / insurance fund** | A fixed 50 bps (`INSURANCE_PREMIUM_BPS`) cut of every vault deposit that accumulates in the vault's insurance fund. Paid out via `claim_insurance` to compensate investors when a project defaults. |
+| **Management fee** | An optional, admin-configured fee (in bps, capped at `MAX_MANAGEMENT_FEE_BPS` = 500) deducted from each deposit before shares are minted, sent to a configured recipient via `set_management_fee`. |
+| **Yield-per-share accumulator** | The vault's global, monotonically increasing `YieldPerShareAccum` value (scaled by `YIELD_SCALE`), used with each investor's last-claim checkpoint (`YieldDebt`) to compute claimable yield in O(1) without iterating investors. |
+| **Multi-sig admin** | An optional `(signers, threshold)` configuration (`set_multisig_admin`) that requires `threshold` distinct signer approvals for critical operations instead of a single owner signature. `threshold = 0` disables it. |
+| **Collateral** | Tokens deposited against a specific project (`deposit_collateral`) as security, released to the owner at maturity (`release_collateral`) or seized by the admin on default (`liquidate_collateral`). |
+| **Archive / compaction** | Two-step lifecycle for retiring a project's storage footprint: `archive_project` flags a project inactive, and `compact_archive` later replaces its full `ProjectData` with a much smaller `ArchiveSummary` to reduce ongoing rent. |
+| **Governance proposal** | A time-boxed on-chain vote (`create_proposal`, `cast_vote`, `execute_proposal`) that HBS holders use to approve or reject a described action; passes if `votes_for > votes_against` once voting closes. |
+| **Carbon credits** | Units calculated from a project's green impact score and funding amount (`calculate_carbon_credits`), issuable to an address (`issue_carbon_credits`) and transferable independently of HBS or USDC balances. |
+| **Bridge transfer** | Cross-chain movement of HBS value via a Wormhole-style message: `initiate_bridge_transfer` burns HBS and emits a VAA-verifiable message; `complete_bridge_transfer` verifies the VAA against trusted emitters and mints HBS on the destination side. |
+| **State version / migration** | `STATE_VERSION` is the storage schema version a given contract build supports; `stored_state_version()` is what's actually persisted on-chain. `migrate_state` upgrades storage from an older version. See [MIGRATION.md](MIGRATION.md). |
+
+---
+
 ## ProjectRegistry
 
 Crate: `project_registry`
