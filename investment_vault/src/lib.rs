@@ -1493,6 +1493,16 @@ fn fund_project_internal(env: Env, project_id: u32, amount: i128) {
     let registry_addr: Address = env.storage().instance().get(&VaultKey::Registry).unwrap();
     let registry = registry_interface::Client::new(&env, &registry_addr);
 
+    // The registry's own getters (including get_project) remain callable
+    // while it's paused — only its state-mutating operations are blocked.
+    // Explicitly reject new funding while the registry is paused (#72, #263):
+    // scores/whitelist could be frozen mid-review, so treating the registry's
+    // pause as "don't deploy new capital against this data" is safer than
+    // silently funding against a registry an admin has intentionally halted.
+    if registry.is_paused() {
+        panic_with_error!(&env, VaultError::RegistryPaused);
+    }
+
     // Removed total_projects() call — get_project() panics with ProjectNotFound
     // if the ID is unknown, so a separate bounds-check cross-contract call is
     // redundant and adds significant gas overhead (#87).
