@@ -48,6 +48,9 @@ jobs:
       - name: Check INTERFACE.md matches contract exports (#273)
         run: python3 scripts/check_interface_docs.py
 
+      - name: Check shared event field types are consistent (#258)
+        run: python3 scripts/check_event_field_types.py
+
       - name: Test
         run: cargo test --all --quiet
 

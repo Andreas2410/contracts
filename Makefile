@@ -1,4 +1,4 @@
-.PHONY: build test check-interface-docs deploy-testnet
+.PHONY: build test check-interface-docs check-event-field-types deploy-testnet
 
 build:
 	stellar contract build
@@ -8,6 +8,9 @@ test:
 
 check-interface-docs:
 	python3 scripts/check_interface_docs.py
+
+check-event-field-types:
+	python3 scripts/check_event_field_types.py
 
 deploy-testnet: build
 	@mkdir -p deploy
