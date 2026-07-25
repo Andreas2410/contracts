@@ -224,4 +224,43 @@ Investor                       |                              |
    - Calls `convert_to_assets(shares_amount)` to determine USDC to return
    - Burns HBS shares via `Base::burn`
    - Transfers USDC from vault to investor
+
+---
+
+## Upgrading a Deployed Contract (#262)
+
+Both contracts support in-place WASM upgrade (`upgrade(new_wasm_hash)`, owner-only)
+plus a versioned storage-migration mechanism (`STATE_VERSION` /
+`state_version()` / `stored_state_version()` / `migrate_state(from_version)`).
+This section is the short operational summary; **`MIGRATION.md` is the
+authoritative reference** — read it in full before performing a real upgrade,
+especially its "Adding a New Storage Layout Version" and "Build Order for
+Cross-Contract Dependencies" sections and the hard-prerequisite warning about
+upgrade ordering between the two contracts.
+
+**Summary of the procedure** (see `MIGRATION.md` for the full command-by-command
+walkthrough):
+
+1. Build the new WASM for both contracts and run the full test suite.
+2. Upload the new WASM to the network (`stellar contract upload`) for both
+   contracts.
+3. Pause both contracts (`pause()`, owner-only) to prevent state changes
+   during the upgrade window.
+4. Invoke `upgrade(new_wasm_hash)` on **ProjectRegistry first, then
+   InvestmentVault** — the vault calls into the registry's interface, so
+   upgrading the vault first against an un-upgraded registry can break
+   cross-contract calls with no automatic rollback.
+5. If `STATE_VERSION` was incremented, call `migrate_state(from_version)` on
+   each contract that changed. It panics with `UnsupportedStateVersion` if
+   `from_version` doesn't match the currently stored version, which prevents
+   double-migration.
+6. Verify `stored_state_version()` reflects the new version on both
+   contracts, then `unpause()` both.
+
+**Rollback:** Soroban WASM upgrades are irreversible on-chain — the only
+"rollback" is re-uploading and re-invoking `upgrade` with the previous WASM
+hash (keep every uploaded hash recorded, see `deploy/testnet.json` and
+`scripts/check_deploy_wasm_hash.py`). State written under the new version may
+not be readable by the old WASM if the storage layout changed, so this is not
+a true undo.
    - Emits `Withdraw`
