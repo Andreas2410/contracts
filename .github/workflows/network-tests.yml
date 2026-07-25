@@ -15,6 +15,11 @@ on:
     workflows: [CI]
     branches: [main]
     types: [completed]
+  # Periodic health check independent of push activity (#252) — catches
+  # testnet-side drift (RPC changes, funded-account expiry, network outages)
+  # that wouldn't otherwise surface until the next merge to main.
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
 
 concurrency:
   group: network-tests-${{ github.ref }}
@@ -33,6 +38,8 @@ jobs:
       - id: check
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
@@ -169,7 +176,8 @@ jobs:
             -- create_project \
               --creator "$ADMIN" \
               --uri "ipfs://QmNetworkTestHeliobond" \
-              --maturity_date 0)
+              --maturity_date 0 \
+              --metadata_hash 0000000000000000000000000000000000000000000000000000000000000000)
           echo "Project created: $PROJECT_ID"
           [ "$PROJECT_ID" = "1" ] || (echo "FAIL: expected project_id=1"; exit 1)
 
