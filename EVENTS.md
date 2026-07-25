@@ -2,51 +2,62 @@
 
 This document provides a catalog of all events emitted by the Heliobond smart contracts for off-chain indexers and developers.
 
+Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit it, so indexer authors can trace an event back to the call that produced it.
+
 ## Project Registry Events
 
 ### `project_created`
 - **Topics**: `["project", "created"]`
 - **Data**: `(project_id: u32, creator: Address)`
 - **Description**: Emitted when a new project is created in the registry.
+- **Emitted by**: [`create_project`](INTERFACE.md#projectregistry)
 
 ### `score_changed`
 - **Topics**: `["project", "score_changed"]`
 - **Data**: `(project_id: u32, old_credit: u32, new_credit: u32, old_green: u32, new_green: u32, old_rate: u32, new_rate: u32)`
 - **Description**: Emitted when a project's impact scores and corresponding interest rate are updated.
+- **Emitted by**: [`update_impact_score`](INTERFACE.md#projectregistry) / [`update_impact_score_approved`](INTERFACE.md#projectregistry) (both scores), [`update_credit_quality_score`](INTERFACE.md#projectregistry) (credit quality only)
 
 ### `project_archived`
 - **Topics**: `["project", "archived"]`
 - **Data**: `(project_id: u32)`
 - **Description**: Emitted when a project is archived.
+- **Emitted by**: [`archive_project`](INTERFACE.md#projectregistry)
 
 ### `project_deleted`
 - **Topics**: `["project", "deleted"]`
 - **Data**: `(project_id: u32)`
 - **Description**: Emitted when a project is completely deleted.
+- **Emitted by**: [`delete_project`](INTERFACE.md#projectregistry)
 
 ### `project_compacted`
 - **Topics**: `["project", "compacted"]`
 - **Data**: `(project_id: u32)`
 - **Description**: Emitted when a project's storage footprint is reduced.
+- **Emitted by**: [`compact_archive`](INTERFACE.md#projectregistry)
 
 ### `collateral_deposited`
 - **Topics**: `["project", "collateral_deposited"]`
 - **Data**: `(project_id: u32, token: Address, depositor: Address, amount: i128)`
 - **Description**: Emitted when collateral is added for a project.
+- **Emitted by**: [`deposit_collateral`](INTERFACE.md#projectregistry)
 
 ### `collateral_released`
 - **Topics**: `["project", "collateral_released"]`
 - **Data**: `(project_id: u32, token: Address, receiver: Address, amount: i128)`
 - **Description**: Emitted when collateral is returned to the project owner.
+- **Emitted by**: [`release_collateral`](INTERFACE.md#projectregistry)
 
 ## Investment Vault Events
 
-### `investment_made`
-- **Topics**: `["vault", "investment"]`
-- **Data**: `(project_id: u32, investor: Address, amount: i128)`
-- **Description**: Emitted when a user invests in a project.
+### `project_funded`
+- **Topics**: `["vault", "project_funded"]`
+- **Data**: `(project_id: u32, amount: i128, recipient: Address)`
+- **Description**: Emitted when the vault transfers USDC from the vault to a project's owner.
+- **Emitted by**: [`fund_project`](INTERFACE.md#investmentvault), [`fund_project_with_approvals`](INTERFACE.md#investmentvault), [`batch_fund_projects`](INTERFACE.md#investmentvault)
 
-### `yield_distributed`
-- **Topics**: `["vault", "yield_distributed"]`
-- **Data**: `(project_id: u32, total_yield: i128)`
-- **Description**: Emitted when yield is paid out to a project's investors.
+### `yield_received`
+- **Topics**: `["vault", "yield_received"]`
+- **Data**: `(from: Address, amount: i128)`
+- **Description**: Emitted when yield repayment USDC is received from a project and folded into the yield-per-share accumulator for later claims.
+- **Emitted by**: [`receive_yield`](INTERFACE.md#investmentvault)
