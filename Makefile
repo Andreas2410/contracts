@@ -1,10 +1,17 @@
-.PHONY: build test check-interface-docs check-event-field-types deploy-testnet
+.PHONY: build test test-vault test-registry check-interface-docs check-event-field-types deploy-testnet
 
 build:
 	stellar contract build
 
 test:
 	cargo test
+
+# Scope to a single crate for faster local iteration (#254).
+test-vault:
+	cargo test -p investment-vault
+
+test-registry:
+	cargo test -p project-registry
 
 check-interface-docs:
 	python3 scripts/check_interface_docs.py
