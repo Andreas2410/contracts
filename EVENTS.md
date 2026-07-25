@@ -13,8 +13,8 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Emitted by**: [`create_project`](INTERFACE.md#projectregistry)
 
 ### `score_changed`
-- **Topics**: `["project", "score_changed"]`
-- **Data**: `(project_id: u32, old_credit: u32, new_credit: u32, old_green: u32, new_green: u32, old_rate: u32, new_rate: u32)`
+- **Topics**: `["score_changed", project_id: u32]`
+- **Data** (Map, keyed by field name): `{old_credit_quality: u32, new_credit_quality: u32, old_green_impact: u32, new_green_impact: u32, old_rate_bps: u32, new_rate_bps: u32}`
 - **Description**: Emitted when a project's impact scores and corresponding interest rate are updated.
 - **Emitted by**: [`update_impact_score`](INTERFACE.md#projectregistry) / [`update_impact_score_approved`](INTERFACE.md#projectregistry) (both scores), [`update_credit_quality_score`](INTERFACE.md#projectregistry) (credit quality only)
 

@@ -1,32 +1,63 @@
 import { SorobanRpc, scValToNative, xdr } from "@stellar/stellar-sdk";
 import { ScoreChangedEvent, ServiceConfig } from "./types";
 
-const SCORE_CHANGED_TOPIC = "ScoreChanged";
+// The #[contractevent] macro derives the prefix topic from the struct name in
+// snake_case by default (ScoreChanged -> "score_changed") — see
+// project_registry/src/events.rs and EVENTS.md.
+const SCORE_CHANGED_TOPIC = "score_changed";
+
+/** Non-#[topic] fields of ScoreChanged, as published (default data_format = Map). */
+const SCORE_CHANGED_DATA_FIELDS = [
+  "old_credit_quality",
+  "new_credit_quality",
+  "old_green_impact",
+  "new_green_impact",
+  "old_rate_bps",
+  "new_rate_bps",
+] as const;
 
 /** Decode a ScoreChanged event from a Soroban transaction event. */
-function decodeScoreChanged(
+export function decodeScoreChanged(
   event: xdr.ContractEvent,
   ledger: number,
   timestamp: number,
 ): ScoreChangedEvent | null {
   try {
     const body = event.body();
-    if (body.switch() !== xdr.ContractEventType.contractEventTypeV0) {
+    // ContractEventBody.switch() is the raw union discriminant (0 = v0, the only
+    // arm currently defined by the XDR spec); the SDK doesn't expose a named
+    // enum for it, so we compare against the literal directly.
+    if (body.switch() !== 0) {
       return null;
     }
     const v0 = body.v0();
     const topics = v0.topics();
 
-    // topics[0] = event name (Symbol), topics[1] = project_id (u32)
-    if (topics.length() < 2) return null;
-    const eventName = scValToNative(topics.get(0));
+    // topics[0] = event name (Symbol), topics[1] = project_id (u32) — only
+    // `project_id` is marked #[topic] on the ScoreChanged struct.
+    if (topics.length < 2) return null;
+    const eventName = scValToNative(topics[0]);
     if (eventName !== SCORE_CHANGED_TOPIC) return null;
 
-    const projectId = Number(scValToNative(topics.get(1)));
-    const data = scValToNative(v0.data());
+    const projectId = Number(scValToNative(topics[1]));
 
-    // data is {Vec: [old_cq, new_cq, old_gi, new_gi, old_rate, new_rate]}
-    if (!Array.isArray(data)) return null;
+    // The remaining (non-topic) fields are published as a Map keyed by field
+    // name (the macro's default data_format), not a positional vector — see
+    // derive_event.rs's DataFormat::Map branch. scValToNative turns that into
+    // a plain object keyed by the Rust field names.
+    const data = scValToNative(v0.data());
+    if (typeof data !== "object" || data === null || Array.isArray(data)) {
+      return null;
+    }
+
+    const fields = data as Record<string, unknown>;
+    // All fields are required (non-optional) on ScoreChangedEvent, so reject
+    // anything that doesn't decode to a finite number instead of letting
+    // undefined/NaN through.
+    const values = SCORE_CHANGED_DATA_FIELDS.map((key) => Number(fields[key]));
+    if (![projectId, ...values].every(Number.isFinite)) {
+      return null;
+    }
     const [
       old_credit_quality,
       new_credit_quality,
@@ -34,7 +65,7 @@ function decodeScoreChanged(
       new_green_impact,
       old_rate_bps,
       new_rate_bps,
-    ] = data.map(Number);
+    ] = values;
 
     return {
       project_id: projectId,
@@ -93,18 +124,28 @@ async function fetchEvents(
   return results;
 }
 
+/** Handle returned by {@link pollScoreChanges} to stop polling gracefully. */
+export interface PollHandle {
+  /** Stop scheduling further polls and wait for any in-flight poll to finish. */
+  stop(): Promise<void>;
+}
+
 /** Poll for new ScoreChanged events and invoke the callback. */
 export async function pollScoreChanges(
   config: ServiceConfig,
   onEvent: (event: ScoreChangedEvent) => Promise<void>,
   getLastLedger: () => Promise<number>,
   setLastLedger: (ledger: number) => Promise<void>,
-): Promise<void> {
+): Promise<PollHandle> {
   const server = new SorobanRpc.Server(config.rpc_url);
 
   console.log(
     `[listener] Starting poll every ${config.poll_interval_ms}ms for contract ${config.registry_contract_id}`,
   );
+
+  let stopped = false;
+  let timer: NodeJS.Timeout | undefined;
+  let currentPoll: Promise<void> = Promise.resolve();
 
   const poll = async () => {
     try {
@@ -145,7 +186,28 @@ export async function pollScoreChanges(
     }
   };
 
-  // Initial poll, then interval
-  await poll();
-  setInterval(poll, config.poll_interval_ms);
+  const scheduleNext = () => {
+    if (stopped) return;
+    timer = setTimeout(() => {
+      currentPoll = poll();
+      currentPoll.then(scheduleNext);
+    }, config.poll_interval_ms);
+  };
+
+  // Kick off the initial poll but don't block on it — `stop()` already
+  // tracks it via `currentPoll`, so the handle (and therefore signal-based
+  // graceful shutdown) is available immediately rather than only after a
+  // full RPC round-trip, closing the window where a SIGTERM/SIGINT during
+  // startup would bypass cleanup entirely.
+  currentPoll = poll();
+  currentPoll.then(scheduleNext);
+
+  return {
+    async stop(): Promise<void> {
+      if (stopped) return;
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      await currentPoll;
+    },
+  };
 }
