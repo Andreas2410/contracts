@@ -65,9 +65,21 @@ export class Notifier {
       try {
         if (hasEmail && this.transporter && pref.email) {
           await this.sendEmail(pref.email, subject, text);
+          this.store.recordNotification(
+            addr,
+            event.project_id,
+            "email",
+            event.ledger,
+          );
         }
         if (hasWebhook && pref.webhook_url) {
           await this.sendWebhook(pref.webhook_url, event, addr);
+          this.store.recordNotification(
+            addr,
+            event.project_id,
+            "webhook",
+            event.ledger,
+          );
         }
         this.rememberRecipient(recipientKey);
       } catch (err) {

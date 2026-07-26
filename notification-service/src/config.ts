@@ -1,6 +1,25 @@
 import { ServiceConfig } from "./types";
 
+/** Environment variables that must be set for the service to start. */
+const REQUIRED_ENV_VARS = ["REGISTRY_CONTRACT_ID"] as const;
+
+/**
+ * Throws a clear, actionable error if any required environment variable is
+ * missing, so the service fails fast at startup instead of misbehaving
+ * later (e.g. polling an empty contract id).
+ */
+function assertRequiredEnvVars(): void {
+  const missing = REQUIRED_ENV_VARS.filter((name) => !process.env[name]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variable(s): ${missing.join(", ")}`,
+    );
+  }
+}
+
 export function loadConfig(): ServiceConfig {
+  assertRequiredEnvVars();
+
   return {
     rpc_url:
       process.env.STELLAR_RPC_URL || "https://soroban-testnet.stellar.org",

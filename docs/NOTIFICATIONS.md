@@ -46,6 +46,35 @@ contract.update_impact_score(&project_id, &80u32, &60u32);
 // }
 ```
 
+### Decoded Event Shape (JSON)
+
+Off-chain consumers that decode the raw Soroban event (as `notification-service/src/listener.ts` does via `decodeScoreChanged`) receive a flat object combining the topic field, the data-map fields, and metadata about where the event was emitted:
+
+```json
+{
+  "project_id": 1,
+  "old_credit_quality": 0,
+  "new_credit_quality": 80,
+  "old_green_impact": 0,
+  "new_green_impact": 60,
+  "old_rate_bps": 1000,
+  "new_rate_bps": 650,
+  "timestamp": 1751025600,
+  "ledger": 123456
+}
+```
+
+| Field | Type | Description |
+|-------|------|--------------|
+| `project_id` | `number` | The project whose scores changed (decoded from the event's topic) |
+| `old_credit_quality` / `new_credit_quality` | `number` | Credit quality before/after (0–100) |
+| `old_green_impact` / `new_green_impact` | `number` | Green impact before/after (0–100) |
+| `old_rate_bps` / `new_rate_bps` | `number` | Interest rate in basis points before/after (500–1000) |
+| `timestamp` | `number` | Unix timestamp (seconds) of the ledger close time |
+| `ledger` | `number` | Stellar ledger sequence number the event was emitted in |
+
+All fields are required — the decoder rejects any raw event that doesn't decode to every field above as a finite number, rather than passing through `null`/`NaN`.
+
 ---
 
 ## Off-Chain Notification Service
@@ -130,6 +159,37 @@ Request body:
 At least one of `email` or `webhook_url` must be provided. Both can be set simultaneously.
 
 **DELETE `/preferences/:address`** — Remove an investor's preferences.
+
+#### Notification History
+
+**GET `/notifications/history`** — List sent notifications, most recent first, paginated.
+
+Query parameters:
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | `number` | `50` (max `200`) | Maximum number of entries to return |
+| `offset` | `number` | `0` | Number of entries to skip |
+| `investor_address` | `string` | — | Restrict results to a single investor |
+
+Response body:
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "investor_address": "GABCD...",
+      "project_id": 1,
+      "channel": "webhook",
+      "ledger": 123456,
+      "sent_at": "2026-06-27T12:00:00.000Z"
+    }
+  ],
+  "total": 87,
+  "limit": 50,
+  "offset": 0
+}
+```
 
 **GET `/health`** — Health check.
 
