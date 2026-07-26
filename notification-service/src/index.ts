@@ -38,13 +38,6 @@ export function createShutdownHandler(
 async function main(): Promise<void> {
   const config = loadConfig();
 
-  if (!config.registry_contract_id) {
-    console.error(
-      "FATAL: REGISTRY_CONTRACT_ID environment variable is required",
-    );
-    process.exit(1);
-  }
-
   const store = new Store(config.db_path);
   const notifier = new Notifier(config, store);
 
