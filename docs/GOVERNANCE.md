@@ -44,6 +44,47 @@ An operational role focused on onboarding project creators and certifying projec
 
 ---
 
+## Multisig Approval Threshold Configuration
+
+Both contracts support an optional multisig gate on their most sensitive Admin actions — `InvestmentVault::fund_project` / `batch_fund_projects` / `claim_insurance`, and `ProjectRegistry::update_impact_score_approved` — as the on-chain implementation of the "Phase 1: Multisig Administration" step in the roadmap below. This is separate from `stellar-access::ownable` (which is a single `Address`); the multisig config is its own signer list + threshold stored per-contract.
+
+### How it's configured
+
+Each contract exposes the same three functions (owner-only unless noted):
+
+| Function | Contract | Effect |
+|---|---|---|
+| `set_multisig_admin(signers, threshold)` | Both | Sets the approver list and required approval count. `#[only_owner]`. |
+| `get_multisig_admin()` | Both | Returns `(signers, threshold)`. No auth required — anyone can read the current config. |
+| `clear_multisig_admin()` | `ProjectRegistry` | Resets `threshold` to `0` and `signers` to empty, disabling multisig. `#[only_owner]`. |
+
+`set_multisig_admin` validates the config before storing it:
+- `signers.len()` must not exceed `MAX_MULTISIG_SIGNERS` (10 in both contracts) — panics with `TooManyMultiSigSigners` otherwise.
+- `threshold` must be greater than `0` and no greater than `signers.len()` — panics with `InvalidMultiSigThreshold` otherwise (so you cannot require more approvals than there are signers, and cannot set a threshold with no signers).
+- `signers` must not contain duplicate addresses — panics with `DuplicateApproval` otherwise.
+
+### How it changes call behaviour
+
+Once `threshold > 0`, the plain single-owner variant of a gated function (e.g. `fund_project`, `claim_insurance`) becomes unusable — it panics via an internal `require_multisig_disabled` guard. Callers must switch to the `_with_approvals` variant instead (e.g. `fund_project_with_approvals`, `claim_insurance_with_approvals`, `update_impact_score_approved`), passing a `Vec<Address>` of the approving signers. For each address in that list, `require_admin_approval`:
+1. Panics with `DuplicateApproval` if it already appeared earlier in the same list.
+2. Panics with `NotMultiSigSigner` if it isn't in the stored `signers` set.
+3. Calls `.require_auth()` on it — every listed approver must independently authorize the transaction, not just be named in the list.
+
+If fewer than `threshold` addresses pass all three checks, it panics with `InsufficientApprovals`.
+
+While `threshold == 0` (the default, unset state), call the plain variant (e.g. `fund_project`) — the `_with_approvals` variant's `require_admin_approval` would still work in this state too (it falls back to a plain `require_auth()` on the contract owner when `threshold == 0`), but the plain variant is what `require_multisig_disabled` expects while multisig is off. Both variants call the same internal implementation (e.g. `fund_project_internal`); only the auth gate in front of it differs.
+
+### Changing the threshold or signer set
+
+There is no separate "update" function — call `set_multisig_admin` again with the full new `signers` list and `threshold`; it overwrites the previous config atomically. To go from, say, a 2-of-3 to a 3-of-5 setup, submit one `set_multisig_admin` call with all 5 signers and `threshold: 3`.
+
+> [!WARNING]
+> **`InvestmentVault` cannot disable multisig once enabled.** `validate_multisig_config` rejects `threshold == 0` outright (`InvalidMultiSigThreshold`), and unlike `ProjectRegistry`, `InvestmentVault` has no `clear_multisig_admin()` function. Once you call `set_multisig_admin` on the vault with a real threshold, every `_with_approvals`-gated action (`fund_project`, `batch_fund_projects`, `claim_insurance`) requires that many approvals permanently — there's no on-chain path back to single-owner operation. `ProjectRegistry` doesn't have this limitation: call `clear_multisig_admin()` there to reset `threshold` to `0` and re-enable the plain owner-only functions. Treat enabling multisig on the vault as a one-way migration, and confirm the signer set before enabling it.
+
+Because `set_multisig_admin` is itself `#[only_owner]` and not gated by the multisig it configures, the single-owner key retains ultimate control over the multisig roster — see the "Phase 1" note below on migrating that owner key to a genuine Stellar multisig account for defense in depth.
+
+---
+
 ## On-Chain Proposal & Voting Mechanism
 
 To prepare the platform for future decentralization, a preliminary governance proposal system is built directly into the `ProjectRegistry` contract.
