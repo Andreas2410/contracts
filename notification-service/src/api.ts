@@ -1,11 +1,16 @@
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import rateLimit, { Options as RateLimitOptions } from "express-rate-limit";
 import { Store } from "./db";
 import { NotificationPreference } from "./types";
+import { Metrics } from "./metrics";
 
 export interface ApiOptions {
   /** Overrides for the public rate limiter (mainly for tests). */
   rateLimit?: Partial<RateLimitOptions>;
+  /** If set, only requests whose Origin header is in this list will receive CORS headers. */
+  allowedOrigins?: string[];
+  /** Optional metrics instance to expose via GET /metrics. */
+  metrics?: Metrics;
 }
 
 const DEFAULT_HISTORY_LIMIT = 50;
@@ -29,6 +34,25 @@ export function createApi(
   const app = express();
   app.use(express.json());
 
+  // ── CORS ───────────────────────────────────────────────────────────────
+  // When allowedOrigins is configured, only matching Origin values receive
+  // the Access-Control-Allow-Origin header; non-matching origins get no
+  // CORS headers, so the browser blocks the cross-origin read. When the
+  // list is omitted, no CORS headers are added (framework default).
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    if (origin && options.allowedOrigins?.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Methods", "GET, PUT, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    }
+    if (req.method === "OPTIONS") {
+      res.status(204).send();
+      return;
+    }
+    next();
+  });
+
   // Basic rate limiting to prevent abuse of these publicly exposed routes.
   app.use(
     rateLimit({
@@ -44,6 +68,13 @@ export function createApi(
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
+
+  // GET /metrics — expose in-memory counters (events processed, notifications sent)
+  if (options.metrics) {
+    app.get("/metrics", (_req, res) => {
+      res.json(options.metrics!.snapshot());
+    });
+  }
 
   // GET /preferences — list all notification preferences
   app.get("/preferences", (_req, res) => {
