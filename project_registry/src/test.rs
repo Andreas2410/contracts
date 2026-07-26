@@ -40,8 +40,12 @@ fn test_create_project_by_whitelisted_address() {
 
     client.set_whitelist(&creator, &true);
 
-    let project_id =
-        client.create_project(&creator, &String::from_str(&env, "ipfs://QmTest"), &0u64, &test_metadata_hash(&env));
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     assert_eq!(project_id, 1);
     let project = client.get_project(&1);
@@ -58,7 +62,12 @@ fn test_create_project_by_whitelisted_address() {
 fn test_create_project_by_non_whitelisted_panics() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
-    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 }
 
 #[test]
@@ -67,8 +76,18 @@ fn test_sequential_project_ids() {
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
 
-    let id1 = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm1"), &0u64, &test_metadata_hash(&env));
-    let id2 = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm2"), &0u64, &test_metadata_hash(&env));
+    let id1 = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id2 = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
@@ -80,7 +99,12 @@ fn test_update_impact_score() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &80u32, &90u32);
 
@@ -101,7 +125,8 @@ fn test_multisig_update_impact_score_approved() {
         &creator,
         &String::from_str(&env, "ipfs://QmMultiSig"),
         &0u64,
-    &test_metadata_hash(&env));
+        &test_metadata_hash(&env),
+    );
 
     client.set_multisig_admin(
         &soroban_sdk::vec![&env, signer1.clone(), signer2.clone(), signer3],
@@ -131,7 +156,8 @@ fn test_multisig_update_impact_score_rejects_insufficient_approvals() {
         &creator,
         &String::from_str(&env, "ipfs://QmMultiSig"),
         &0u64,
-    &test_metadata_hash(&env));
+        &test_metadata_hash(&env),
+    );
 
     client.set_multisig_admin(&soroban_sdk::vec![&env, signer1.clone(), signer2], &2u32);
     client.update_impact_score_approved(&id, &80u32, &90u32, &soroban_sdk::vec![&env, signer1]);
@@ -142,7 +168,12 @@ fn bench_registry_create_and_score_project() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://QmBench"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmBench"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.update_impact_score(&id, &75u32, &85u32);
 
     let instructions = env.cost_estimate().resources().instructions;
@@ -158,7 +189,12 @@ fn test_update_impact_score_noop_identical_values() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.update_impact_score(&id, &80u32, &90u32);
 
     // Second call with identical scores should be a no-op (no panic, no storage write)
@@ -181,7 +217,12 @@ fn test_update_score_non_admin_panics() {
     let contract_id = env.register(ProjectRegistry, (&admin, &whitelister));
     let client = ProjectRegistryClient::new(&env, &contract_id);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     let non_admin = Address::generate(&env);
     env.mock_auths(&[soroban_sdk::testutils::MockAuth {
@@ -206,8 +247,18 @@ fn test_get_all_projects() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm1"), &0u64, &test_metadata_hash(&env));
-    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm2"), &0u64, &test_metadata_hash(&env));
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     let all = client.get_all_projects();
     assert_eq!(all.len(), 2);
@@ -253,7 +304,10 @@ fn test_get_projects_page_returns_stable_ordering_across_pages() {
         all_ids.push_back(entry.0);
     }
 
-    assert_eq!(paged_ids, all_ids, "paginated ids must match get_all_projects order exactly, with no skips or duplicates");
+    assert_eq!(
+        paged_ids, all_ids,
+        "paginated ids must match get_all_projects order exactly, with no skips or duplicates"
+    );
 }
 
 #[test]
@@ -293,7 +347,12 @@ fn test_get_projects_page_zero_limit_returns_empty() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     let page = client.get_projects_page(&0u32, &0u32);
     assert_eq!(page.len(), 0);
@@ -311,7 +370,12 @@ fn test_certify_project() {
     let (env, _admin, whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.certify_project(&whitelister, &id, &CertificationStatus::Certified);
 
@@ -331,7 +395,8 @@ fn test_maturity_date_is_mature() {
         &creator,
         &String::from_str(&env, "ipfs://Qm"),
         &(now + 1000),
-    &test_metadata_hash(&env));
+        &test_metadata_hash(&env),
+    );
 
     assert!(!client.is_mature(&id));
 
@@ -347,7 +412,12 @@ fn test_update_credit_quality_score_success() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_credit_quality_score(&id, &75u32);
 
@@ -363,7 +433,12 @@ fn test_update_credit_quality_score_out_of_range_panics() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.update_credit_quality_score(&id, &101u32);
 }
 
@@ -372,7 +447,12 @@ fn test_update_credit_quality_score_boundary_values() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_credit_quality_score(&id, &0u32);
     assert_eq!(client.get_project(&id).credit_quality, 0);
@@ -386,7 +466,12 @@ fn test_update_credit_quality_independent_of_green_impact() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &60u32, &80u32);
     client.update_credit_quality_score(&id, &45u32);
@@ -401,7 +486,12 @@ fn test_credit_quality_score_changes_rate_correctly() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     // Set baseline: credit_quality=60, green_impact=40 → rate = avg(60,40)=50,
     // discount=50*500/100=250, rate=1000-250=750
@@ -421,7 +511,12 @@ fn test_update_credit_quality_score_noop_identical_values() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.update_credit_quality_score(&id, &75u32);
     let project_before = client.get_project(&id);
 
@@ -441,7 +536,12 @@ fn test_uri_exactly_min_length_accepted() {
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
     // 8 chars exactly equals MIN_URI_LEN
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Q"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Q"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     assert_eq!(id, 1);
 }
 
@@ -452,7 +552,12 @@ fn test_uri_below_min_length_panics() {
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
     // 7 chars — one below MIN_URI_LEN
-    client.create_project(&creator, &String::from_str(&env, "ipfs://"), &0u64, &test_metadata_hash(&env));
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 }
 
 #[test]
@@ -508,7 +613,12 @@ fn test_deposit_and_get_collateral() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let project_id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     let token_admin = Address::generate(&env);
     let token_sac = env
@@ -527,7 +637,12 @@ fn test_non_owner_cannot_deposit_collateral() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let project_id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     let token_admin = Address::generate(&env);
     let token_sac = env
@@ -544,7 +659,12 @@ fn test_liquidate_collateral_by_admin() {
     let (env, admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let project_id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     let token_sac = env
         .register_stellar_asset_contract_v2(admin.clone())
@@ -568,7 +688,8 @@ fn test_release_collateral_after_maturity() {
         &creator,
         &String::from_str(&env, "ipfs://Qm"),
         &(now + 1000),
-    &test_metadata_hash(&env));
+        &test_metadata_hash(&env),
+    );
 
     let token_sac = env
         .register_stellar_asset_contract_v2(admin.clone())
@@ -589,7 +710,12 @@ fn test_interest_rate_zero_scores_is_base_rate() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     // credit_quality = 0, green_impact = 0 (default) → rate = 1000 bps (10%)
     assert_eq!(client.get_interest_rate(&id), 1_000u32);
 }
@@ -599,7 +725,12 @@ fn test_interest_rate_perfect_scores_is_minimum() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.update_impact_score(&id, &100u32, &100u32);
     // avg = 100, discount = 100 * 500 / 100 = 500 → rate = 1000 - 500 = 500 bps (5 %)
     assert_eq!(client.get_interest_rate(&id), 500u32);
@@ -610,7 +741,12 @@ fn test_interest_rate_mid_scores() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.update_impact_score(&id, &80u32, &60u32);
     // avg = (80 + 60) / 2 = 70, discount = 70 * 500 / 100 = 350 → rate = 1000 - 350 = 650 bps
     assert_eq!(client.get_interest_rate(&id), 650u32);
@@ -624,7 +760,12 @@ fn test_create_project_emits_event() {
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
 
-    client.create_project(&creator, &String::from_str(&env, "ipfs://QmTest"), &0u64, &test_metadata_hash(&env));
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmTest"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     // In Soroban tests env.events().all() returns events from the most recent invocation only.
     let events = env.events().all().filter_by_contract(&client.address);
@@ -655,7 +796,12 @@ fn test_update_impact_score_emits_event() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &80u32, &60u32);
 
@@ -672,7 +818,12 @@ fn test_score_changed_event_contains_old_and_new_values() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &80u32, &60u32);
 }
@@ -682,7 +833,12 @@ fn test_certify_project_emits_event() {
     let (env, _admin, whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.certify_project(&whitelister, &id, &CertificationStatus::Certified);
 
@@ -851,7 +1007,12 @@ fn test_new_whitelister_can_set_whitelist() {
 
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     assert_eq!(id, 1);
 }
 
@@ -878,7 +1039,12 @@ fn test_update_impact_score_boundary_values() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     // Score of exactly 0
     client.update_impact_score(&id, &0u32, &0u32);
@@ -899,7 +1065,12 @@ fn test_update_impact_score_exceeds_100_panics_credit_quality() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &101u32, &50u32);
 }
@@ -910,7 +1081,12 @@ fn test_update_impact_score_exceeds_100_panics_green_impact() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &50u32, &101u32);
 }
@@ -921,7 +1097,12 @@ fn test_update_impact_score_max_value_panics() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &u32::MAX, &50u32);
 }
@@ -932,18 +1113,38 @@ fn test_multiple_creators_sequential_ids() {
     let creator1 = Address::generate(&env);
     let creator2 = Address::generate(&env);
     let creator3 = Address::generate(&env);
-    
+
     client.set_whitelist(&creator1, &true);
     client.set_whitelist(&creator2, &true);
     client.set_whitelist(&creator3, &true);
 
-    let id1 = client.create_project(&creator1, &String::from_str(&env, "ipfs://Qm1"), &0u64, &test_metadata_hash(&env));
-    let id2 = client.create_project(&creator2, &String::from_str(&env, "ipfs://Qm2"), &0u64, &test_metadata_hash(&env));
-    let id3 = client.create_project(&creator1, &String::from_str(&env, "ipfs://Qm3"), &0u64, &test_metadata_hash(&env));
-    
+    let id1 = client.create_project(
+        &creator1,
+        &String::from_str(&env, "ipfs://Qm1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id2 = client.create_project(
+        &creator2,
+        &String::from_str(&env, "ipfs://Qm2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id3 = client.create_project(
+        &creator1,
+        &String::from_str(&env, "ipfs://Qm3"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
     // Revoke whitelist for creator2, shouldn't affect existing projects
     client.set_whitelist(&creator2, &false);
-    let id4 = client.create_project(&creator3, &String::from_str(&env, "ipfs://Qm4"), &0u64, &test_metadata_hash(&env));
+    let id4 = client.create_project(
+        &creator3,
+        &String::from_str(&env, "ipfs://Qm4"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
@@ -955,7 +1156,7 @@ fn test_multiple_creators_sequential_ids() {
 
     let p2 = client.get_project(&id2);
     assert_eq!(p2.owner, creator2);
-    
+
     let p3 = client.get_project(&id3);
     assert_eq!(p3.owner, creator1);
 
@@ -967,7 +1168,11 @@ fn test_multiple_creators_sequential_ids() {
 
 // Integration: full Heliobond flow across both contracts
 mod integration {
-    use soroban_sdk::{testutils::{Address as _, Ledger as _}, token::StellarAssetClient, Address, Env, String};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger as _},
+        token::StellarAssetClient,
+        Address, Env, String,
+    };
 
     use investment_vault::{InvestmentVault, InvestmentVaultClient};
 
@@ -1092,7 +1297,12 @@ fn test_score_history_records_entry_on_update() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &70u32, &80u32);
 
@@ -1108,7 +1318,12 @@ fn test_score_history_noop_does_not_append() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &70u32, &80u32);
     client.update_impact_score(&id, &70u32, &80u32); // no-op — same values
@@ -1122,7 +1337,12 @@ fn test_score_history_multiple_updates_ordered() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_impact_score(&id, &10u32, &20u32);
     client.update_impact_score(&id, &30u32, &40u32);
@@ -1140,7 +1360,12 @@ fn test_credit_quality_score_history_recorded() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 
     client.update_credit_quality_score(&id, &55u32);
     client.update_credit_quality_score(&id, &55u32); // no-op
@@ -1175,7 +1400,12 @@ fn test_create_project_records_created_at() {
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
     env.ledger().with_mut(|li| li.timestamp = 12345);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     let project = client.get_project(&id);
     assert_eq!(project.created_at, 12345);
 }
@@ -1227,7 +1457,12 @@ fn test_create_project_blocked_when_paused() {
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
     client.pause();
-    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 }
 
 #[test]
@@ -1236,7 +1471,12 @@ fn test_update_impact_score_blocked_when_paused() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.pause();
     client.update_impact_score(&id, &50u32, &50u32);
 }
@@ -1246,7 +1486,12 @@ fn test_getters_work_when_paused() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
     client.set_whitelist(&creator, &true);
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
     client.pause();
     // Read-only operations are unaffected by pause
     let project = client.get_project(&id);
@@ -1267,7 +1512,12 @@ fn test_compact_storage_removes_zero_collateral() {
 
     // Use a future maturity date so collateral can be released at maturity
     let maturity = env.ledger().timestamp() + 10_000;
-    let id = client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &maturity, &test_metadata_hash(&env));
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &maturity,
+        &test_metadata_hash(&env),
+    );
 
     // Mint a token and deposit collateral
     let token_admin = Address::generate(&env);
@@ -1337,7 +1587,12 @@ fn test_stale_stored_version_blocks_normal_calls() {
     });
 
     // A normal state-mutating call must be blocked until migrate_state runs.
-    client.create_project(&creator, &String::from_str(&env, "ipfs://Qm"), &0u64, &test_metadata_hash(&env));
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
 }
 
 // ── Ownership transfer event test (#30) ───────────────────────────────────────
@@ -1429,8 +1684,89 @@ fn test_all_only_owner_functions_reject_non_admin_caller() {
     ];
 
     for (i, rejected) in results.iter().enumerate() {
-        assert!(rejected, "only_owner function at index {i} did not reject a non-admin caller");
+        assert!(
+            rejected,
+            "only_owner function at index {i} did not reject a non-admin caller"
+        );
     }
+}
+
+// ── Combined pause + read-only getters test (#213) ───────────────────────────
+
+#[test]
+fn test_pause_blocks_mutations_but_not_getters() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+
+    // Create a project before pausing — succeeds.
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    client.pause();
+
+    // Verify that a mutating call is blocked while paused.
+    let blocked = client.try_create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmNew"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    assert!(
+        blocked.is_err(),
+        "create_project should be blocked when paused"
+    );
+
+    // Verify that all read-only getters still succeed.
+    let project = client.get_project(&id);
+    assert_eq!(project.owner, creator);
+    assert_eq!(client.total_projects(), 1);
+    assert_eq!(client.is_paused(), true);
+    assert_eq!(client.state_version(), client.stored_state_version());
+}
+
+// ── migrate_state rejects unknown target version (#214) ──────────────────────
+
+#[test]
+#[should_panic]
+fn test_migrate_state_rejects_unknown_future_target_version() {
+    let (env, _admin, _whitelister, client) = setup();
+
+    // Set stored version to a future value the contract does not recognise.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&crate::types::DataKey::StateVersion, &99u32);
+    });
+
+    // from_version = 99 matches stored, but 99 > STATE_VERSION (1), so the
+    // `current > STATE_VERSION` guard in migrate_state must reject it.
+    client.migrate_state(&99u32);
+}
+
+// ── Gas benchmark: get_all_projects at high project counts (#215) ────────────
+
+#[test]
+fn bench_registry_get_all_projects_50() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+
+    for _ in 0..50 {
+        client.create_project(
+            &creator,
+            &String::from_str(&env, "ipfs://Qm"),
+            &0u64,
+            &test_metadata_hash(&env),
+        );
+    }
+
+    let projects = client.get_all_projects();
+    assert_eq!(projects.len(), 50);
 }
 
 // ── Fuzz targets (#257) ─────────────────────────────────────────────────────
@@ -1524,4 +1860,3 @@ proptest! {
         prop_assert!(result.is_err());
     }
 }
-
