@@ -74,6 +74,18 @@ docs(adr): add ADR-003 explaining share vault model
 ci: add WASM size budget check to CI
 ```
 
+### Changelog
+
+`CHANGELOG.md` is generated automatically, not written by hand — do not edit it in your PR. [`.github/workflows/changelog.yml`](.github/workflows/changelog.yml) runs on every `v*` tag push (or manually via `workflow_dispatch`), scans commit history with `conventional-changelog` (Angular preset), regenerates `CHANGELOG.md`, and publishes it as the GitHub release notes.
+
+This means your changelog entry *is* your commit message, so it has to follow the format above correctly:
+- `feat:` commits bump the minor version and appear under "Features"
+- `fix:` (and anything else conventional-changelog treats as a fix) bumps patch and appears under "Bug Fixes"
+- A `BREAKING CHANGE:` footer, or a `!` after the type/scope (e.g. `feat(investment_vault)!: ...`), bumps major
+- `docs:`, `ci:`, `chore:`, `refactor:`, `test:` commits are included in the changelog under their own sections but don't trigger a version bump on their own
+
+If a PR is squash-merged, the squash commit message is what the changelog picks up — make sure the squash message (not just the individual commits) follows the format.
+
 ---
 
 ## Testing requirements
