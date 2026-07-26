@@ -127,6 +127,9 @@ async function fetchEvents(
         event.timestamp,
       );
       if (decoded) {
+        console.log(
+          `[listener] Processed event: type=score_changed contract=${contractId} ledger=${event.ledger} project=${decoded.project_id}`,
+        );
         results.push(decoded);
       }
     }
