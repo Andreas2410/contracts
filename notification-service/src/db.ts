@@ -5,13 +5,56 @@ import {
   NotificationPreference,
 } from "./types";
 
+/** Max retries when the database isn't reachable on startup. */
+const DB_CONNECT_MAX_RETRIES = 5;
+/** Base delay (ms) between retry attempts — doubles each attempt. */
+const DB_CONNECT_RETRY_BASE_DELAY_MS = 200;
+
+/**
+ * Synchronous sleep used by the retry loop. Extracted so tests can override
+ * via `Store.sleep = …` to avoid real delays.
+ */
+function defaultSleep(ms: number): void {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    /* spin */
+  }
+}
+
 export class Store {
+  /** Overridable sleep function for testing. */
+  static sleep: (ms: number) => void = defaultSleep;
+
   private db: Database.Database;
 
   constructor(path: string) {
-    this.db = new Database(path);
+    this.db = Store.connectWithRetry(path);
     this.db.pragma("journal_mode = WAL");
     this.migrate();
+  }
+
+  /**
+   * Open a SQLite database, retrying with exponential backoff if the file
+   * isn't available yet (e.g. a mounted volume that arrives after the
+   * container starts). Throws after exhausting all attempts.
+   */
+  static connectWithRetry(path: string): Database.Database {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= DB_CONNECT_MAX_RETRIES; attempt++) {
+      try {
+        return new Database(path);
+      } catch (err) {
+        lastError = err;
+        if (attempt < DB_CONNECT_MAX_RETRIES) {
+          const delayMs = DB_CONNECT_RETRY_BASE_DELAY_MS * 2 ** attempt;
+          console.warn(
+            `[db] Connection attempt ${attempt + 1}/${DB_CONNECT_MAX_RETRIES + 1} failed, retrying in ${delayMs}ms…`,
+          );
+          Store.sleep(delayMs);
+        }
+      }
+    }
+    throw lastError;
   }
 
   private migrate(): void {
