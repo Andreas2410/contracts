@@ -228,6 +228,7 @@ impl InvestmentVault {
         fund_project_internal(env, project_id, amount);
     }
 
+    /// Transfer USDC from the vault to a registered project's owner with multi-sig admin approvals (#184).
     pub fn fund_project_with_approvals(
         env: Env,
         project_id: u32,
@@ -238,9 +239,17 @@ impl InvestmentVault {
         fund_project_internal(env, project_id, amount);
     }
 
+    /// Fund multiple projects in a single batch transaction with multi-sig approvals (#184, #188).
+    ///
+    /// Rejects batch requests containing duplicate project IDs to prevent double-funding.
     pub fn batch_fund_projects(env: Env, fundings: Vec<(u32, i128)>, approvals: Vec<Address>) {
         require_admin_approval(&env, approvals);
+        let mut seen = Vec::new(&env);
         for funding in fundings.iter() {
+            if seen.contains(&funding.0) {
+                panic_with_error!(&env, VaultError::DuplicateProjectId);
+            }
+            seen.push_back(funding.0);
             fund_project_internal(env.clone(), funding.0, funding.1);
         }
     }
@@ -415,6 +424,7 @@ impl InvestmentVault {
         shares
     }
 
+    /// Perform multiple deposits from different accounts in a single batch transaction (#184).
     pub fn batch_deposit(env: Env, deposits: Vec<(Address, i128)>) -> Vec<i128> {
         let mut minted = Vec::new(&env);
         for deposit in deposits.iter() {
@@ -775,6 +785,7 @@ impl InvestmentVault {
         claim_insurance_internal(env, project_id, recipient, amount);
     }
 
+    /// Pay out an insurance claim for a defaulted project using multi-sig approvals (#184).
     pub fn claim_insurance_with_approvals(
         env: Env,
         project_id: u32,
@@ -786,6 +797,7 @@ impl InvestmentVault {
         claim_insurance_internal(env, project_id, recipient, amount);
     }
 
+    /// Configure multi-sig admin signers and approval threshold (owner-only) (#184).
     #[only_owner]
     pub fn set_multisig_admin(env: Env, signers: Vec<Address>, threshold: u32) {
         validate_multisig_config(&env, &signers, threshold);
@@ -797,6 +809,7 @@ impl InvestmentVault {
             .set(&VaultKey::MultiSigThreshold, &threshold);
     }
 
+    /// Return the list of multi-sig admin signers and required threshold (#184).
     pub fn get_multisig_admin(env: Env) -> (Vec<Address>, u32) {
         let signers = env
             .storage()
@@ -995,6 +1008,7 @@ impl InvestmentVault {
 
     // ── Bridge ────────────────────────────────────────────────────────────────
 
+    /// Set the cross-chain bridge contract address (owner-only) (#184).
     #[only_owner]
     pub fn set_bridge(env: Env, bridge: Address) {
         require_current_state(&env);
@@ -1006,6 +1020,7 @@ impl InvestmentVault {
         events::bridge_set(&env, &bridge);
     }
 
+    /// Mint HBS shares resulting from an authorized cross-chain bridge transfer (#184).
     pub fn bridge_mint(env: Env, to: Address, amount: i128) {
         require_current_state(&env);
         let bridge: Address = env
@@ -1022,6 +1037,7 @@ impl InvestmentVault {
         events::bridge_mint(&env, &to, amount);
     }
 
+    /// Burn HBS shares to initiate an outbound cross-chain bridge transfer (#184).
     pub fn bridge_burn(env: Env, from: Address, amount: i128) {
         require_current_state(&env);
         from.require_auth();
@@ -1034,6 +1050,7 @@ impl InvestmentVault {
 
     // ── Wormhole bridge ────────────────────────────────────────────────────────
 
+    /// Set the Wormhole core contract address (owner-only) (#184).
     #[only_owner]
     pub fn set_wormhole_core(env: Env, core: Address) {
         env.storage()
@@ -1058,6 +1075,7 @@ impl InvestmentVault {
         events::trusted_emitter_set(&env, chain_id, &emitter_address, trusted);
     }
 
+    /// Initiate an outbound Wormhole cross-chain bridge transfer of HBS shares (#184).
     pub fn initiate_bridge_transfer(
         env: Env,
         from: Address,
@@ -1094,6 +1112,7 @@ impl InvestmentVault {
         sequence
     }
 
+    /// Complete an inbound Wormhole cross-chain bridge transfer using a verified VAA (#184).
     pub fn complete_bridge_transfer(env: Env, vaa: Bytes) {
         require_current_state(&env);
         let core: Address = env
@@ -1144,6 +1163,7 @@ impl InvestmentVault {
 
     const DEFAULT_FLASH_LOAN_FEE: i128 = 30;
 
+    /// Set the flash loan fee in basis points (owner-only) (#184).
     #[only_owner]
     pub fn set_flash_loan_fee(env: Env, fee_bps: i128) {
         if !(0..=1000).contains(&fee_bps) {
@@ -1158,6 +1178,7 @@ impl InvestmentVault {
         events::flash_loan_fee_set(&env, fee_bps);
     }
 
+    /// Return the current flash loan fee in basis points (#184).
     pub fn flash_loan_fee(env: Env) -> i128 {
         require_current_state(&env);
         env.storage()
@@ -1166,6 +1187,7 @@ impl InvestmentVault {
             .unwrap_or(Self::DEFAULT_FLASH_LOAN_FEE)
     }
 
+    /// Execute an uncollateralized flash loan of USDC capital (#184).
     pub fn execute_flash_loan(
         env: Env,
         initiator: Address,
@@ -1202,6 +1224,7 @@ impl InvestmentVault {
 
     const CARBON_UNIT: i128 = 10_000_000_000;
 
+    /// Set the carbon credit oracle address (owner-only) (#184).
     #[only_owner]
     pub fn set_carbon_oracle(env: Env, oracle: Address) {
         require_current_state(&env);
@@ -1215,6 +1238,7 @@ impl InvestmentVault {
         events::carbon_oracle_set(&env, &oracle);
     }
 
+    /// Set the price per carbon credit (carbon oracle only) (#184).
     pub fn set_carbon_credit_price(env: Env, price: i128) {
         require_current_state(&env);
         let oracle: Address = env
@@ -1236,6 +1260,7 @@ impl InvestmentVault {
         events::carbon_credit_price_set(&env, price);
     }
 
+    /// Return the current carbon credit price (#184).
     pub fn carbon_credit_price(env: Env) -> i128 {
         require_current_state(&env);
         env.storage()
@@ -1244,6 +1269,7 @@ impl InvestmentVault {
             .unwrap_or(0)
     }
 
+    /// Calculate carbon credit output based on investment amount and project green impact (#184).
     pub fn calculate_carbon_credits(
         env: Env,
         project_id: u32,
@@ -1264,6 +1290,7 @@ impl InvestmentVault {
         }
     }
 
+    /// Issue carbon credits to a specified recipient (#184).
     pub fn issue_carbon_credits(env: Env, to: Address, project_id: u32, amount: i128) -> i128 {
         require_current_state(&env);
         let calc = Self::calculate_carbon_credits(env.clone(), project_id, amount);
@@ -1285,6 +1312,7 @@ impl InvestmentVault {
         calc.credits
     }
 
+    /// Transfer carbon credits between accounts (#184).
     pub fn transfer_carbon_credits(env: Env, from: Address, to: Address, amount: i128) {
         require_current_state(&env);
         from.require_auth();
@@ -1320,6 +1348,7 @@ impl InvestmentVault {
         events::carbon_credits_transferred(&env, &from, &to, amount);
     }
 
+    /// Return the carbon credit balance for a given address (#184).
     pub fn carbon_credit_balance(env: Env, address: Address) -> i128 {
         require_current_state(&env);
         env.storage()
@@ -1332,6 +1361,7 @@ impl InvestmentVault {
 
     const MAX_COMPLIANCE_EVENTS: u64 = 1000;
 
+    /// Set the maximum transaction amount limit for compliance monitoring (owner-only) (#184).
     #[only_owner]
     pub fn set_max_transaction_amount(env: Env, amount: i128) {
         require_current_state(&env);
@@ -1347,6 +1377,7 @@ impl InvestmentVault {
         events::max_transaction_amount_set(&env, amount);
     }
 
+    /// Return the current compliance transaction limit (#184).
     pub fn max_transaction_amount(env: Env) -> i128 {
         require_current_state(&env);
         env.storage()
@@ -1355,6 +1386,7 @@ impl InvestmentVault {
             .unwrap_or(0)
     }
 
+    /// Record a compliance or regulatory audit event in persistent storage (owner-only) (#184).
     #[only_owner]
     pub fn record_compliance_event(env: Env, event_type: String, data: String) {
         require_current_state(&env);
@@ -1389,6 +1421,7 @@ impl InvestmentVault {
         events::compliance_event_recorded(&env, seq, &event_type);
     }
 
+    /// Retrieve a specific compliance event by sequence number (#184).
     pub fn get_compliance_event(env: Env, seq: u64) -> ComplianceEventData {
         require_current_state(&env);
         env.storage()
@@ -1397,6 +1430,7 @@ impl InvestmentVault {
             .unwrap_or_else(|| panic!("compliance event not found"))
     }
 
+    /// Retrieve a range of compliance events for reporting (#184).
     pub fn get_compliance_events(env: Env, from: u64, to: u64) -> Vec<ComplianceEventData> {
         require_current_state(&env);
         if from > to {
@@ -1416,6 +1450,7 @@ impl InvestmentVault {
         events_vec
     }
 
+    /// Capture a snapshot of key vault metrics for regulatory reporting (owner-only) (#184).
     #[only_owner]
     pub fn take_reporting_snapshot(env: Env) {
         require_current_state(&env);
@@ -1435,6 +1470,7 @@ impl InvestmentVault {
         events::reporting_snapshot_taken(&env, snapshot.timestamp);
     }
 
+    /// Retrieve the most recent regulatory reporting snapshot (#184).
     pub fn get_latest_snapshot(env: Env) -> ReportingSnapshotData {
         require_current_state(&env);
         env.storage()
@@ -1443,6 +1479,7 @@ impl InvestmentVault {
             .unwrap_or_else(|| panic!("no snapshot taken"))
     }
 
+    /// Export a full regulatory report combining current metrics and recent audit events (#184).
     pub fn export_regulatory_data(env: Env) -> RegulatoryReport {
         require_current_state(&env);
         let snapshot = env

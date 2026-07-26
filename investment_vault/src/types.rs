@@ -85,6 +85,8 @@ pub enum VaultError {
     MaxSupplyExceeded = 38,
     /// Attempted to fund a project owned by the vault's own admin (#14).
     SelfFundingNotAllowed = 39,
+    /// A batch funding request contains duplicate project IDs (#188).
+    DuplicateProjectId = 40,
 }
 
 #[contracttype]

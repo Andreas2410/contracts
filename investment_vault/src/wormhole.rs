@@ -1,9 +1,26 @@
 #![allow(dead_code)]
 //! Wormhole cross-chain bridge integration types and helpers.
 //!
-//! Wormhole integration uses a burn/mint pattern:
-//! - **Outbound**: HBS are burned on Stellar, a Wormhole message is emitted.
-//! - **Inbound**: A relayer delivers a VAA, which is verified, then HBS are minted.
+//! # Wormhole Bridging Flow
+//!
+//! The Wormhole integration uses a multi-stage burn-and-mint architecture for cross-chain HBS share transfers:
+//!
+//! 1. **Outbound Initiation (`initiate_bridge_transfer`)**:
+//!    - User calls `initiate_bridge_transfer` specifying amount, target chain ID, recipient address (32-byte format), and a nonce.
+//!    - Vault burns the corresponding HBS tokens from the user's account.
+//!    - Vault constructs a [`BridgeTransferPayload`] and serializes it into binary format.
+//!    - Vault calls `publish_message` on the configured Wormhole core contract, emitting an `OnChainMessage` event with a unique sequence number.
+//!
+//! 2. **Off-chain Guardian Attestation & Relaying**:
+//!    - Wormhole Guardian network observes the emitted message on Stellar and produces a signed Verified Action Approval (VAA).
+//!    - An off-chain relayer or user submits the signed VAA to the destination chain or back to the vault for inbound transfers.
+//!
+//! 3. **Inbound Completion (`complete_bridge_transfer`)**:
+//!    - Relayer/user submits the binary VAA payload to `complete_bridge_transfer`.
+//!    - Vault invokes `verify_vaa` on the configured Wormhole Core contract.
+//!    - Vault checks that the payload's `(source_chain, emitter_address)` is marked as trusted in contract storage via `set_trusted_emitter`.
+//!    - Vault verifies that the VAA hash hasn't been consumed yet to prevent replay attacks.
+//!    - Vault marks the VAA digest as consumed and mints HBS shares directly to the designated recipient address.
 //!
 //! # Cross-chain bridge readiness (#48)
 //!
