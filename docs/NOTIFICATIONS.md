@@ -131,6 +131,37 @@ At least one of `email` or `webhook_url` must be provided. Both can be set simul
 
 **DELETE `/preferences/:address`** — Remove an investor's preferences.
 
+#### Notification History
+
+**GET `/notifications/history`** — List sent notifications, most recent first, paginated.
+
+Query parameters:
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | `number` | `50` (max `200`) | Maximum number of entries to return |
+| `offset` | `number` | `0` | Number of entries to skip |
+| `investor_address` | `string` | — | Restrict results to a single investor |
+
+Response body:
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "investor_address": "GABCD...",
+      "project_id": 1,
+      "channel": "webhook",
+      "ledger": 123456,
+      "sent_at": "2026-06-27T12:00:00.000Z"
+    }
+  ],
+  "total": 87,
+  "limit": 50,
+  "offset": 0
+}
+```
+
 **GET `/health`** — Health check.
 
 ### Webhook Payload

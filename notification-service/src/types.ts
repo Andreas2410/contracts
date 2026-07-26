@@ -56,6 +56,24 @@ export interface InvestorProjectRow {
   last_seen_ledger: number;
 }
 
+/** A single record of a notification that was sent to an investor. */
+export interface NotificationHistoryEntry {
+  id: number;
+  investor_address: string;
+  project_id: number;
+  channel: "email" | "webhook";
+  ledger: number;
+  sent_at: string;
+}
+
+/** A page of notification history results. */
+export interface NotificationHistoryPage {
+  items: NotificationHistoryEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** Configuration for the notification service. */
 export interface ServiceConfig {
   rpc_url: string;

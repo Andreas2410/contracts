@@ -1,5 +1,9 @@
 import Database from "better-sqlite3";
-import { NotificationPreference } from "./types";
+import {
+  NotificationHistoryEntry,
+  NotificationHistoryPage,
+  NotificationPreference,
+} from "./types";
 
 export class Store {
   private db: Database.Database;
@@ -33,8 +37,20 @@ export class Store {
         ledger INTEGER PRIMARY KEY
       );
 
+      CREATE TABLE IF NOT EXISTS notification_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        investor_address TEXT NOT NULL,
+        project_id INTEGER NOT NULL,
+        channel TEXT NOT NULL,
+        ledger INTEGER NOT NULL,
+        sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
       CREATE INDEX IF NOT EXISTS idx_investor_projects_project
         ON investor_projects(project_id);
+
+      CREATE INDEX IF NOT EXISTS idx_notification_history_sent_at
+        ON notification_history(sent_at DESC);
     `);
   }
 
@@ -133,6 +149,59 @@ export class Store {
       .run(ledger);
   }
 
+  // ── Notification history ─────────────────────────────────────────────
+
+  recordNotification(
+    investor_address: string,
+    project_id: number,
+    channel: "email" | "webhook",
+    ledger: number,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO notification_history
+           (investor_address, project_id, channel, ledger)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(investor_address, project_id, channel, ledger);
+  }
+
+  /**
+   * Returns a page of notification history, most recent first, optionally
+   * filtered to a single investor. Bounded by `limit`/`offset` so callers
+   * can never pull the full unbounded history in one request.
+   */
+  listNotificationHistory(options: {
+    investor_address?: string;
+    limit: number;
+    offset: number;
+  }): NotificationHistoryPage {
+    const { investor_address, limit, offset } = options;
+    const where = investor_address ? "WHERE investor_address = ?" : "";
+    const params = investor_address ? [investor_address] : [];
+
+    const total = (
+      this.db
+        .prepare(`SELECT COUNT(*) as count FROM notification_history ${where}`)
+        .get(...params) as { count: number }
+    ).count;
+
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM notification_history ${where}
+         ORDER BY id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset) as Record<string, unknown>[];
+
+    return {
+      items: rows.map((r) => this.rowToHistoryEntry(r)),
+      total,
+      limit,
+      offset,
+    };
+  }
+
   close(): void {
     this.db.close();
   }
@@ -149,6 +218,19 @@ export class Store {
       enabled: Boolean(row.enabled),
       min_delta: row.min_delta as number,
       updated_at: row.updated_at as string,
+    };
+  }
+
+  private rowToHistoryEntry(
+    row: Record<string, unknown>,
+  ): NotificationHistoryEntry {
+    return {
+      id: row.id as number,
+      investor_address: row.investor_address as string,
+      project_id: row.project_id as number,
+      channel: row.channel as "email" | "webhook",
+      ledger: row.ledger as number,
+      sent_at: row.sent_at as string,
     };
   }
 }

@@ -8,6 +8,20 @@ export interface ApiOptions {
   rateLimit?: Partial<RateLimitOptions>;
 }
 
+const DEFAULT_HISTORY_LIMIT = 50;
+const MAX_HISTORY_LIMIT = 200;
+
+/** Clamp a query-string pagination param to a safe positive integer, falling back to `fallback`. */
+function parsePaginationParam(
+  value: unknown,
+  fallback: number,
+  max?: number,
+): number {
+  const parsed = typeof value === "string" ? parseInt(value, 10) : NaN;
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return max !== undefined ? Math.min(parsed, max) : parsed;
+}
+
 export function createApi(
   store: Store,
   options: ApiOptions = {},
@@ -84,6 +98,28 @@ export function createApi(
   app.delete("/preferences/:address", (req, res) => {
     store.deletePreference(req.params.address);
     res.status(204).send();
+  });
+
+  // GET /notifications/history — paginated notification history, optionally
+  // filtered to a single investor via ?investor_address=
+  app.get("/notifications/history", (req, res) => {
+    const limit = parsePaginationParam(
+      req.query.limit,
+      DEFAULT_HISTORY_LIMIT,
+      MAX_HISTORY_LIMIT,
+    );
+    const offset = parsePaginationParam(req.query.offset, 0);
+    const investor_address =
+      typeof req.query.investor_address === "string"
+        ? req.query.investor_address
+        : undefined;
+
+    const page = store.listNotificationHistory({
+      investor_address,
+      limit,
+      offset,
+    });
+    res.json(page);
   });
 
   return app;

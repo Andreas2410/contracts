@@ -43,7 +43,10 @@ function makeEvent(
 }
 
 function makeStore(): Store {
-  return { getPreference: vi.fn(() => preference) } as unknown as Store;
+  return {
+    getPreference: vi.fn(() => preference),
+    recordNotification: vi.fn(),
+  } as unknown as Store;
 }
 
 describe("Notifier.notifyInvestors deduplication", () => {
@@ -98,6 +101,7 @@ describe("Notifier.notifyInvestors deduplication", () => {
       getPreference: vi.fn((addr: string) =>
         addr === other.investor_address ? other : preference,
       ),
+      recordNotification: vi.fn(),
     } as unknown as Store;
 
     fetchMock
