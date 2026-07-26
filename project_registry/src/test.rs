@@ -257,6 +257,38 @@ fn test_get_projects_page_returns_stable_ordering_across_pages() {
 }
 
 #[test]
+fn test_get_projects_page_limit_larger_than_total_projects() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm3"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    let page = client.get_projects_page(&0u32, &10u32);
+
+    assert_eq!(page.len(), 3);
+    assert_eq!(page.get(0).unwrap().0, 1);
+    assert_eq!(page.get(1).unwrap().0, 2);
+    assert_eq!(page.get(2).unwrap().0, 3);
+}
+
+#[test]
 fn test_get_projects_page_zero_limit_returns_empty() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
