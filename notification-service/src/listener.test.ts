@@ -1,6 +1,29 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ServiceConfig, ScoreChangedEvent } from "./types";
+
+// Hoisted mock references — accessible before module evaluation
+const { getLatestLedgerMock, getEventsMock } = vi.hoisted(() => ({
+  getLatestLedgerMock: vi.fn(),
+  getEventsMock: vi.fn(),
+}));
+
+vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+  return {
+    ...mod,
+    SorobanRpc: {
+      ...mod.SorobanRpc,
+      Server: vi.fn().mockImplementation(() => ({
+        getLatestLedger: getLatestLedgerMock,
+        getEvents: getEventsMock,
+      })),
+    },
+  };
+});
+
+// Static imports pick up the mocked module
 import { xdr, nativeToScVal } from "@stellar/stellar-sdk";
-import { decodeScoreChanged } from "./listener";
+import { decodeScoreChanged, pollScoreChanges } from "./listener";
 
 const LEDGER = 12345;
 const TIMESTAMP = 1_700_000_000;
@@ -181,5 +204,72 @@ describe("decodeScoreChanged", () => {
         Buffer.alloc(32, 0xab).toString("hex"),
       ),
     ).toBeNull();
+  });
+});
+
+// ── Issue #216: reconnect after a dropped RPC connection ────────────────────
+
+describe("pollScoreChanges reconnects after a dropped RPC connection", () => {
+  const config: ServiceConfig = {
+    rpc_url: "https://example.invalid",
+    network_passphrase: "Test SDF Network ; September 2015",
+    registry_contract_id: "REGISTRY",
+    vault_contract_id: "VAULT",
+    db_path: ":memory:",
+    poll_interval_ms: 50,
+    api_port: 3000,
+  };
+
+  beforeEach(() => {
+    getLatestLedgerMock.mockReset();
+    getEventsMock.mockReset();
+    // Default: server responds normally, caught up
+    getLatestLedgerMock.mockResolvedValue({ sequence: 100 });
+    getEventsMock.mockResolvedValue({ events: [] });
+  });
+
+  it("continues polling after a connection error and processes subsequent events", async () => {
+    const processed: ScoreChangedEvent[] = [];
+    let ledger = 0;
+
+    // First poll: connection drops
+    getLatestLedgerMock
+      .mockRejectedValueOnce(new Error("ECONNREFUSED"))
+      // Second poll: succeeds
+      .mockResolvedValueOnce({ sequence: 100 });
+
+    // Second poll returns an event
+    getEventsMock
+      .mockResolvedValueOnce({
+        events: [
+          {
+            value: buildScoreChangedEvent(
+              ["score_changed", 7],
+              buildDataMap(FULL_SCORES),
+            ),
+            ledger: 100,
+            timestamp: TIMESTAMP,
+          },
+        ],
+      });
+
+    const handle = await pollScoreChanges(
+      config,
+      async (ev) => {
+        processed.push(ev);
+      },
+      async () => ledger,
+      async (l) => {
+        ledger = l;
+      },
+    );
+
+    // Wait for two poll cycles (first fails at ~0ms, second fires at ~50ms)
+    await new Promise((r) => setTimeout(r, config.poll_interval_ms * 5));
+    await handle.stop();
+
+    expect(getLatestLedgerMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(processed).toHaveLength(1);
+    expect(processed[0].project_id).toBe(7);
   });
 });

@@ -64,9 +64,24 @@ export function createApi(
     }),
   );
 
-  // GET /health — health check
+  // GET /health — health check with DB connectivity
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok" });
+    try {
+      const dbOk = store.isHealthy();
+      const status = dbOk ? "ok" : "degraded";
+      const code = dbOk ? 200 : 503;
+      res.status(code).json({
+        status,
+        database: dbOk ? "connected" : "disconnected",
+        uptime: process.uptime(),
+      });
+    } catch {
+      res.status(503).json({
+        status: "degraded",
+        database: "error",
+        uptime: process.uptime(),
+      });
+    }
   });
 
   // GET /metrics — expose in-memory counters (events processed, notifications sent)
@@ -102,13 +117,38 @@ export function createApi(
       return;
     }
 
-    if (email && typeof email !== "string") {
+    // Reject requests with no body or a non-object body
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      res.status(400).json({ error: "request body must be a JSON object" });
+      return;
+    }
+
+    if (email !== undefined && typeof email !== "string") {
       res.status(400).json({ error: "email must be a string" });
       return;
     }
 
-    if (webhook_url && typeof webhook_url !== "string") {
+    if (webhook_url !== undefined && typeof webhook_url !== "string") {
       res.status(400).json({ error: "webhook_url must be a string" });
+      return;
+    }
+
+    if (webhook_url !== undefined && typeof webhook_url === "string" && webhook_url.length > 0) {
+      try {
+        new URL(webhook_url);
+      } catch {
+        res.status(400).json({ error: "webhook_url must be a valid URL" });
+        return;
+      }
+    }
+
+    if (enabled !== undefined && typeof enabled !== "boolean") {
+      res.status(400).json({ error: "enabled must be a boolean" });
+      return;
+    }
+
+    if (min_delta !== undefined && (typeof min_delta !== "number" || !Number.isFinite(min_delta) || min_delta < 0)) {
+      res.status(400).json({ error: "min_delta must be a non-negative number" });
       return;
     }
 

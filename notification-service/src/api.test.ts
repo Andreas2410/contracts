@@ -119,6 +119,9 @@ describe("GET /notifications/history", () => {
   });
 });
 
+// ── Issue #218: input validation for malformed payloads ─────────────────────
+
+describe("PUT /preferences/:address input validation", () => {
 describe("CORS configuration", () => {
   let store: Store;
 
@@ -126,6 +129,67 @@ describe("CORS configuration", () => {
     store?.close();
   });
 
+  it("returns 400 when email is not a string", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({ email: 123 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/email/);
+  });
+
+  it("returns 400 when webhook_url is not a string", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({ webhook_url: true });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/webhook_url/);
+  });
+
+  it("returns 400 when webhook_url is not a valid URL", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({ webhook_url: "not-a-url" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/valid URL/);
+  });
+
+  it("returns 400 when enabled is not a boolean", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({ enabled: "yes" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/enabled/);
+  });
+
+  it("returns 400 when min_delta is negative", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({ min_delta: -5 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/min_delta/);
+  });
+
+  it("returns 400 when body is an array", async () => {
   it("sets Access-Control-Allow-Origin for a matching origin", async () => {
     store = makeStore();
     const app = createApi(store, {
@@ -173,6 +237,37 @@ describe("CORS configuration", () => {
     const app = createApi(store);
 
     const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send([{ email: "test@example.com" }]);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/JSON object/);
+  });
+
+  it("accepts a valid payload and returns 200", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({
+        email: "test@example.com",
+        webhook_url: "https://example.com/webhook",
+        enabled: true,
+        min_delta: 5,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.email).toBe("test@example.com");
+    expect(res.body.webhook_url).toBe("https://example.com/webhook");
+    expect(res.body.enabled).toBe(true);
+    expect(res.body.min_delta).toBe(5);
+  });
+});
+
+// ── Issue #219: health-check with DB connectivity ──────────────────────────
+
+describe("GET /health with DB connectivity", () => {
       .get("/health")
       .set("Origin", "https://heliobond.io");
 
@@ -187,6 +282,29 @@ describe("GET /metrics", () => {
     store?.close();
   });
 
+  it("returns status ok and database connected when DB is healthy", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app).get("/health");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("ok");
+    expect(res.body.database).toBe("connected");
+    expect(typeof res.body.uptime).toBe("number");
+  });
+
+  it("returns 503 when the database is disconnected", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    // Close the DB to simulate disconnection
+    store.close();
+
+    const res = await request(app).get("/health");
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("degraded");
   it("returns snapshot from the provided Metrics instance", async () => {
     store = makeStore();
     const metrics = new Metrics();

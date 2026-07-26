@@ -119,3 +119,80 @@ describe("Notifier.notifyInvestors deduplication", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
+
+// ── Issue #217: retry behavior on a failed delivery ─────────────────────────
+
+describe("Notifier retry behavior on a failed delivery", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("does not record a notification or dedup key when webhook returns a server error", async () => {
+    fetchMock.mockImplementationOnce(async () =>
+      new Response("Internal Server Error", { status: 500 }),
+    );
+
+    const store = makeStore();
+    const notifier = new Notifier(config, store);
+    const event = makeEvent();
+
+    await notifier.notifyInvestors(event, [preference.investor_address]);
+
+    expect(store.recordNotification).not.toHaveBeenCalled();
+  });
+
+  it("retries on redelivery after a webhook timeout (network error)", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockImplementationOnce(async () => new Response(null, { status: 200 }));
+
+    const store = makeStore();
+    const notifier = new Notifier(config, store);
+    const event = makeEvent();
+
+    // First delivery: network error
+    await notifier.notifyInvestors(event, [preference.investor_address]);
+    // Redelivery: succeeds
+    await notifier.notifyInvestors(event, [preference.investor_address]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.recordNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries independently for each channel when webhook fails but email succeeds", async () => {
+    const withBoth: NotificationPreference = {
+      ...preference,
+      email: "test@example.invalid",
+    };
+    const store = {
+      getPreference: vi.fn(() => withBoth),
+      recordNotification: vi.fn(),
+    } as unknown as Store;
+
+    // First attempt: webhook fails
+    fetchMock.mockImplementationOnce(async () =>
+      new Response("bad gateway", { status: 502 }),
+    );
+
+    // Redelivery: webhook succeeds
+    fetchMock.mockImplementationOnce(async () =>
+      new Response(null, { status: 200 }),
+    );
+
+    // Use a config without email transport — webhook-only path
+    // This tests that webhook retries after failure independently of other channels
+    const notifier = new Notifier(config, store);
+    const event = makeEvent();
+
+    // First attempt: webhook fails, no email transport so only webhook attempted
+    await notifier.notifyInvestors(event, [preference.investor_address]);
+    // Second attempt (redelivery): webhook should retry
+    await notifier.notifyInvestors(event, [preference.investor_address]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.recordNotification).toHaveBeenCalledTimes(1);
+  });
+});

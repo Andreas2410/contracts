@@ -245,6 +245,16 @@ export class Store {
     };
   }
 
+  /** Returns true if the database connection is alive and responsive. */
+  isHealthy(): boolean {
+    try {
+      this.db.prepare("SELECT 1").get();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   close(): void {
     this.db.close();
   }
