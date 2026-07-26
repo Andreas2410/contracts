@@ -163,6 +163,39 @@ fn test_multisig_update_impact_score_rejects_insufficient_approvals() {
     client.update_impact_score_approved(&id, &80u32, &90u32, &soroban_sdk::vec![&env, signer1]);
 }
 
+// ── #208: replayed-approval rejection ────────────────────────────────────────
+
+#[test]
+#[should_panic]
+fn test_multisig_update_impact_score_rejects_replayed_approval() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmReplay"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    // threshold=2, two distinct signers configured
+    client.set_multisig_admin(
+        &soroban_sdk::vec![&env, signer1.clone(), signer2.clone()],
+        &2u32,
+    );
+
+    // Pass signer1 twice — same approval counted toward threshold.
+    // require_admin_approval must reject this as DuplicateApproval.
+    client.update_impact_score_approved(
+        &id,
+        &80u32,
+        &90u32,
+        &soroban_sdk::vec![&env, signer1.clone(), signer1],
+    );
+}
+
 #[test]
 fn bench_registry_create_and_score_project() {
     let (env, _admin, _whitelister, client) = setup();
@@ -703,6 +736,32 @@ fn test_release_collateral_after_maturity() {
     assert_eq!(client.get_collateral(&project_id, &token_sac), 0i128);
 }
 
+// ── #209: release_collateral pre-maturity rejection ──────────────────────────
+
+#[test]
+#[should_panic]
+fn test_release_collateral_before_maturity_panics() {
+    let (env, admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let now = env.ledger().timestamp();
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmPreMature"),
+        &(now + 1000),
+        &test_metadata_hash(&env),
+    );
+
+    let token_sac = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_sac).mint(&creator, &1_000i128);
+    client.deposit_collateral(&project_id, &creator, &token_sac, &500i128);
+
+    // Ledger time is still before maturity_date — must panic with ProjectNotMature.
+    client.release_collateral(&project_id, &creator, &token_sac);
+}
+
 // ── Interest rate (#129) ───────────────────────────────────────────────────────
 
 #[test]
@@ -1164,6 +1223,77 @@ fn test_multiple_creators_sequential_ids() {
     assert_eq!(p4.owner, creator3);
 
     assert_eq!(client.total_projects(), 4);
+}
+
+// ── #210: interleaved creator sequential ID allocation ──────────────────────
+
+#[test]
+fn test_interleaved_creators_sequential_ids() {
+    // Verify that project IDs remain globally sequential when multiple
+    // creators interleave their create_project() calls, not just when
+    // one creator creates all projects or when creators act in blocks.
+    let (env, _admin, _whitelister, client) = setup();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let carol = Address::generate(&env);
+
+    client.set_whitelist(&alice, &true);
+    client.set_whitelist(&bob, &true);
+    client.set_whitelist(&carol, &true);
+
+    // Interleave: alice, bob, carol, alice, bob, carol
+    let id1 = client.create_project(
+        &alice,
+        &String::from_str(&env, "ipfs://QmA1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id2 = client.create_project(
+        &bob,
+        &String::from_str(&env, "ipfs://QmB1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id3 = client.create_project(
+        &carol,
+        &String::from_str(&env, "ipfs://QmC1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id4 = client.create_project(
+        &alice,
+        &String::from_str(&env, "ipfs://QmA2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id5 = client.create_project(
+        &bob,
+        &String::from_str(&env, "ipfs://QmB2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    let id6 = client.create_project(
+        &carol,
+        &String::from_str(&env, "ipfs://QmC2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    assert_eq!(id1, 1);
+    assert_eq!(id2, 2);
+    assert_eq!(id3, 3);
+    assert_eq!(id4, 4);
+    assert_eq!(id5, 5);
+    assert_eq!(id6, 6);
+    assert_eq!(client.total_projects(), 6);
+
+    // Verify ownership is correct for each interleaved project
+    assert_eq!(client.get_project(&id1).owner, alice);
+    assert_eq!(client.get_project(&id2).owner, bob);
+    assert_eq!(client.get_project(&id3).owner, carol);
+    assert_eq!(client.get_project(&id4).owner, alice);
+    assert_eq!(client.get_project(&id5).owner, bob);
+    assert_eq!(client.get_project(&id6).owner, carol);
 }
 
 // Integration: full Heliobond flow across both contracts
