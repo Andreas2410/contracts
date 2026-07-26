@@ -260,6 +260,41 @@ fn test_multisig_batch_fund_projects() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #40)")]
+fn test_multisig_batch_fund_projects_rejects_duplicate_project_ids() {
+    let s = setup();
+    let signer1 = Address::generate(&s.env);
+    let signer2 = Address::generate(&s.env);
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    s.vault_client.set_multisig_admin(
+        &soroban_sdk::vec![&s.env, signer1.clone(), signer2.clone()],
+        &2u32,
+    );
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 2_000_0000000i128);
+    s.vault_client.deposit(&investor, &2_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmDuplicateProject"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    s.vault_client.batch_fund_projects(
+        &soroban_sdk::vec![
+            &s.env,
+            (project, 100_0000000i128),
+            (project, 150_0000000i128)
+        ],
+        &soroban_sdk::vec![&s.env, signer1, signer2],
+    );
+}
+
+#[test]
 fn test_batch_fund_projects_rolls_back_all_events_and_state_on_later_panic() {
     // #271: batch_fund_projects funds project1 (valid) then project2 (invalid
     // — exceeds available deployable USDC), panicking partway through.
