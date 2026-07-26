@@ -30,6 +30,45 @@ You also need:
 
 ---
 
+## Call flow: InvestmentVault <-> ProjectRegistry
+
+`InvestmentVault` never duplicates project data — it cross-calls `ProjectRegistry` at the moments it needs project state, and vice versa is not needed since `ProjectRegistry` has no dependency on the vault. The two flows below cover the full lifecycle: registering/funding a project, and an investor depositing and having a vote counted.
+
+```mermaid
+sequenceDiagram
+    participant Creator
+    participant Investor
+    participant Admin
+    participant Vault as InvestmentVault
+    participant Registry as ProjectRegistry
+    participant USDC as USDC SAC
+
+    Creator->>Registry: create_project(creator, uri)
+    Registry-->>Creator: project_id
+
+    Investor->>USDC: approve(investor, vault, amount)
+    Investor->>Vault: deposit(investor, amount)
+    Vault->>USDC: transfer(investor, vault, amount)
+    Vault-->>Investor: shares minted
+
+    Admin->>Vault: fund_project(project_id, amount)
+    Vault->>Registry: get_project(project_id)
+    Registry-->>Vault: ProjectData { owner, ... }
+    Vault->>USDC: transfer(vault, owner, amount)
+    Vault-->>Admin: ProjectFunded event
+
+    Investor->>Vault: balance(investor)
+    Vault-->>Investor: hbs_balance
+    Investor->>Registry: cast_vote(investor, proposal_id, support, hbs_balance)
+    Registry-->>Investor: VoteCast event
+```
+
+Notes:
+- `fund_project` is the only call where the vault reads from the registry (`get_project`) — this is how it resolves the payout address without storing project ownership itself.
+- `cast_vote`'s weight is supplied by the caller, not fetched on-chain — see the [governance doc](./GOVERNANCE.md#on-chain-proposal--voting-mechanism) for why, and what to verify off-chain before trusting a vote.
+
+---
+
 ## Connecting to the network
 
 ```typescript

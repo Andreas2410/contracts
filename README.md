@@ -11,6 +11,33 @@ On-chain core of [Heliobond](https://heliobond.io) — a green bond platform bui
 
 ---
 
+## Getting Started
+
+Minimal steps to build, test, and deploy locally. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development workflow.
+
+```bash
+# Prerequisites: Rust (stable, ≥1.78), the wasm32v1-none target, and the Stellar CLI (≥26.1.0)
+rustup update stable
+rustup target add wasm32v1-none
+
+# Clone and enter the repo
+git clone https://github.com/Heliobond/contracts
+cd contracts
+
+# Run the test suite
+cargo test --all
+
+# Build both contracts to WASM (target/wasm32v1-none/release/)
+make build
+
+# Deploy to testnet (requires STELLAR_SECRET_KEY, ADMIN_ADDRESS, WHITELISTER_ADDRESS env vars)
+make deploy-testnet
+```
+
+For a scripted end-to-end walkthrough (whitelist → create project → deposit → fund → certify) against an already-deployed instance, see [`scripts/example_full_flow.sh`](./scripts/example_full_flow.sh).
+
+---
+
 ## Architecture
 
 ```mermaid
