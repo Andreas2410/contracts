@@ -21,8 +21,21 @@ export function decodeScoreChanged(
   event: xdr.ContractEvent,
   ledger: number,
   timestamp: number,
+  expectedContractId?: string,
 ): ScoreChangedEvent | null {
   try {
+    // When an expected contract ID is provided, verify the event originated
+    // from that contract. This is a defense-in-depth check — the RPC filter
+    // in fetchEvents already scopes by contractId, but rejecting here too
+    // means a mis-routed or spoofed event can never reach notification
+    // delivery even if the upstream filter is bypassed.
+    if (expectedContractId !== undefined) {
+      const raw = event.contractId();
+      if (!raw) return null;
+      const eventContractId = Buffer.from(raw).toString("hex");
+      if (eventContractId !== expectedContractId) return null;
+    }
+
     const body = event.body();
     // ContractEventBody.switch() is the raw union discriminant (0 = v0, the only
     // arm currently defined by the XDR spec); the SDK doesn't expose a named
@@ -114,6 +127,9 @@ async function fetchEvents(
         event.timestamp,
       );
       if (decoded) {
+        console.log(
+          `[listener] Processed event: type=score_changed contract=${contractId} ledger=${event.ledger} project=${decoded.project_id}`,
+        );
         results.push(decoded);
       }
     }

@@ -57,6 +57,7 @@ const FULL_SCORES = {
 function buildScoreChangedEvent(
   topicValues: unknown[],
   data: xdr.ScVal,
+  contractId?: Buffer,
 ): xdr.ContractEvent {
   const topics = topicValues.map((v) =>
     typeof v === "string"
@@ -70,7 +71,7 @@ function buildScoreChangedEvent(
 
   return new xdr.ContractEvent({
     ext,
-    contractId: null,
+    contractId: contractId ?? null,
     type: xdr.ContractEventType.contract(),
     body,
   });
@@ -150,6 +151,59 @@ describe("decodeScoreChanged", () => {
       xdr.ScVal.scvVoid(),
     );
     expect(decodeScoreChanged(event, LEDGER, TIMESTAMP)).toBeNull();
+  });
+
+  it("accepts an event whose contractId matches the expected value", () => {
+    const contractId = Buffer.alloc(32, 0xab);
+    const event = buildScoreChangedEvent(
+      ["score_changed", 7],
+      buildDataMap(FULL_SCORES),
+      contractId,
+    );
+
+    const decoded = decodeScoreChanged(
+      event,
+      LEDGER,
+      TIMESTAMP,
+      contractId.toString("hex"),
+    );
+
+    expect(decoded).toEqual({
+      project_id: 7,
+      ...FULL_SCORES,
+      timestamp: TIMESTAMP,
+      ledger: LEDGER,
+    });
+  });
+
+  it("returns null when contractId does not match the expected value", () => {
+    const eventContractId = Buffer.alloc(32, 0xab);
+    const expectedContractId = Buffer.alloc(32, 0xcd).toString("hex");
+    const event = buildScoreChangedEvent(
+      ["score_changed", 7],
+      buildDataMap(FULL_SCORES),
+      eventContractId,
+    );
+
+    expect(
+      decodeScoreChanged(event, LEDGER, TIMESTAMP, expectedContractId),
+    ).toBeNull();
+  });
+
+  it("returns null when event has no contractId but one is expected", () => {
+    const event = buildScoreChangedEvent(
+      ["score_changed", 7],
+      buildDataMap(FULL_SCORES),
+    );
+
+    expect(
+      decodeScoreChanged(
+        event,
+        LEDGER,
+        TIMESTAMP,
+        Buffer.alloc(32, 0xab).toString("hex"),
+      ),
+    ).toBeNull();
   });
 });
 
