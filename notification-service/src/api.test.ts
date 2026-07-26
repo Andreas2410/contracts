@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import request from "supertest";
 import { createApi } from "./api";
 import { Store } from "./db";
+import { Metrics } from "./metrics";
 
 function makeStore(): Store {
   return new Store(":memory:");
@@ -115,5 +116,99 @@ describe("GET /notifications/history", () => {
     expect(res.status).toBe(200);
     expect(res.body.items).toEqual([]);
     expect(res.body.total).toBe(0);
+  });
+});
+
+describe("CORS configuration", () => {
+  let store: Store;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("sets Access-Control-Allow-Origin for a matching origin", async () => {
+    store = makeStore();
+    const app = createApi(store, {
+      allowedOrigins: ["https://heliobond.io"],
+    });
+
+    const res = await request(app)
+      .get("/health")
+      .set("Origin", "https://heliobond.io");
+
+    expect(res.headers["access-control-allow-origin"]).toBe(
+      "https://heliobond.io",
+    );
+  });
+
+  it("does not set CORS headers for an origin not in the allow list", async () => {
+    store = makeStore();
+    const app = createApi(store, {
+      allowedOrigins: ["https://heliobond.io"],
+    });
+
+    const res = await request(app)
+      .get("/health")
+      .set("Origin", "https://evil.example.com");
+
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("responds 204 to OPTIONS preflight requests from an allowed origin", async () => {
+    store = makeStore();
+    const app = createApi(store, {
+      allowedOrigins: ["https://heliobond.io"],
+    });
+
+    const res = await request(app)
+      .options("/preferences")
+      .set("Origin", "https://heliobond.io");
+
+    expect(res.status).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toContain("GET");
+  });
+
+  it("does not add CORS headers when allowedOrigins is not configured", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .get("/health")
+      .set("Origin", "https://heliobond.io");
+
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+describe("GET /metrics", () => {
+  let store: Store;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("returns snapshot from the provided Metrics instance", async () => {
+    store = makeStore();
+    const metrics = new Metrics();
+    metrics.recordEventProcessed();
+    metrics.recordEventProcessed();
+    metrics.recordNotificationSent();
+    const app = createApi(store, { metrics });
+
+    const res = await request(app).get("/metrics");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      eventsProcessed: 2,
+      notificationsSent: 1,
+    });
+  });
+
+  it("returns 404 when no Metrics instance is provided", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app).get("/metrics");
+    expect(res.status).toBe(404);
   });
 });
