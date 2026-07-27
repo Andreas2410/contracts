@@ -102,6 +102,8 @@ For details, see [`docs/GOVERNANCE.md`](./docs/GOVERNANCE.md).
 Rust docs are automatically generated and published via CI:
 * Deployed reference: [https://BuildersWCT.github.io/contracts/](https://BuildersWCT.github.io/contracts/)
 
+For the complete, up-to-date interface specification including all functions, parameters, and error codes, see [`INTERFACE.md`](./INTERFACE.md).
+
 
 ### ProjectRegistry
 
@@ -118,21 +120,35 @@ Sets the `Ownable` owner to `admin` and records the `whitelister` address.
 | Function | Auth required | Description |
 |---|---|---|
 | `set_whitelist(account, status)` | `Whitelister` | Grant or revoke whitelist status for a creator address |
-| `create_project(creator, uri)` | `creator` | Register a new project; panics if caller not whitelisted; returns `project_id` (u32, auto-incremented) |
+| `create_project(creator, uri, maturity_date, metadata_hash)` | `creator` | Register a new project; requires whitelist; returns `project_id` |
 | `get_project(id)` | none | Return `ProjectData` for a given `project_id`; panics if not found |
 | `total_projects()` | none | Return the current project counter |
-| `update_impact_score(project_id, credit_quality, green_impact)` | `Admin` (`#[only_owner]`) | Set impact scores (0–100 each) for a project |
-| `get_all_projects()` | none | Return `Vec<(u32, ProjectData)>` of all registered projects |
-| `transfer_ownership(new_owner)` | `Admin` | Transfer contract ownership (via `stellar-access Ownable`) |
+| `update_impact_score(project_id, credit_quality, green_impact)` | `Admin` | Set impact scores (0–100 each) for a project |
+| `update_impact_score_approved(project_id, credit_quality, green_impact, approvals)` | Multi-sig signers | Multi-sig variant for critical operations |
+| `update_credit_quality_score(project_id, credit_quality)` | `Admin` | Update credit score only |
+| `get_projects_page(offset, limit)` | none | Paginated project listing with stable ordering |
+| `get_all_projects()` | none | Return all non-archived projects |
+| `certify_project(caller, project_id, status)` | Whitelister or Admin | Update project certification status |
+| `create_proposal(proposer, description, voting_duration_secs)` | `proposer` | Create governance proposal |
+| `cast_vote(voter, proposal_id, support, weight)` | `voter` | Vote on proposal with HBS weight |
+| `transfer_ownership(new_owner)` | `Admin` | Transfer contract ownership |
+| `set_multisig_admin(signers, threshold)` | `Admin` | Configure multi-sig for critical operations |
+| `pause()` / `unpause()` | `Admin` | Circuit breaker for emergency pauses |
 
 **ProjectData struct**
 
 ```rust
 pub struct ProjectData {
-    pub owner: Address,     // project creator
-    pub uri: String,        // off-chain metadata URI
-    pub credit_quality: u32, // 0–100 set by oracle
-    pub green_impact: u32,   // 0–100 set by oracle
+    pub owner: Address,               // project creator
+    pub uri: String,                  // off-chain metadata URI (8-512 chars)
+    pub credit_quality: u32,          // 0–100 set by oracle
+    pub green_impact: u32,            // 0–100 set by oracle
+    pub maturity_date: u64,           // Unix timestamp (0 for open-ended)
+    pub certification_status: CertificationStatus, // None/Pending/Certified/Revoked
+    pub last_update_timestamp: u64,    // When scores were last updated
+    pub status: ProjectStatus,        // Pending/Active/Funded/Completed/Archived
+    pub created_at: u64,              // Project registration timestamp
+    pub metadata_hash: BytesN<32>,    // SHA-256 hash of off-chain metadata
 }
 ```
 
@@ -152,15 +168,23 @@ Sets the `Ownable` owner to `admin`, stores USDC SAC and Registry addresses, ini
 
 | Function | Auth required | Description |
 |---|---|---|
-| `deposit(from, usdc_amount)` | `from` | Transfer USDC from investor into vault; mint HBS shares; return shares minted |
-| `withdraw(from, shares_amount)` | `from` (via `Base::burn`) | Burn HBS shares; if liquid USDC covers the redemption transfer it immediately; otherwise enqueue a FIFO claim and return 0 |
-| `claim()` | none | Settle queued redemptions in FIFO order using available liquid USDC; return total USDC paid out |
-| `fund_project(project_id, amount)` | `Admin` (`#[only_owner]`) | Cross-call Registry to resolve project owner; transfer USDC from vault to owner; record investment |
-| `total_assets()` | none | Return `liquid_USDC + total_investments + expected_returns` |
-| `convert_to_shares(usdc_amount)` | none | Preview how many HBS a given USDC deposit would mint |
-| `convert_to_assets(shares_amount)` | none | Preview how much USDC a given HBS redemption would return |
-| `get_expected_returns()` | none | Iterate funded projects; sum `investment * (credit_quality + green_impact) / 200` |
+| `deposit(from, usdc_amount)` | `from` | Transfer USDC from investor; mint HBS shares; return shares minted |
+| `batch_deposit(deposits)` | Each depositor | Batch deposit for multiple investors |
+| `withdraw(from, shares_amount)` | `from` | Burn HBS shares; enqueue if insufficient liquidity |
+| `claim()` | none | Settle queued redemptions FIFO; return USDC paid out |
+| `fund_project(project_id, amount)` | `Admin` | Cross-call Registry; transfer USDC to project owner |
+| `fund_project_with_approvals(project_id, amount, approvals)` | Multi-sig signers | Multi-sig variant for critical operations |
+| `batch_fund_projects(fundings, approvals)` | Admin or Multi-sig | Batch funding for multiple projects |
+| `receive_yield(from, amount)` | `Admin` | Register interest/yield payments from projects |
+| `claim_yield(from)` | `from` | Claim accrued yield when liquid |
+| `total_assets()` | none | Return `liquid_USDC + investments + expected_returns` |
+| `convert_to_shares(usdc_amount)` | none | Preview HBS for given USDC deposit (ERC-4626) |
+| `convert_to_assets(shares_amount)` | none | Preview USDC for given HBS redemption (ERC-4626) |
+| `get_expected_returns()` | none | Sum `investment × (credit_quality + green_impact) / 200` |
+| `claim_insurance(project_id, recipient, amount)` | `Admin` | Authorize default insurance payouts |
+| `set_multisig_admin(signers, threshold)` | `Admin` | Configure multi-sig for critical operations |
 | `transfer_ownership(new_owner)` | `Admin` | Transfer contract ownership |
+| `pause()` / `unpause()` | `Admin` | Circuit breaker for emergency pauses |
 
 The vault also exposes the full SEP-41 `FungibleToken` interface (`balance`, `transfer`, `allowance`, `approve`, etc.) and `FungibleBurnable` (`burn`, `burn_from`) from `stellar-tokens`.
 
@@ -209,7 +233,7 @@ make build
 # Output: target/wasm32v1-none/release/project_registry.wasm
 #         target/wasm32v1-none/release/investment_vault.wasm
 
-# Run all 15 tests
+# Run all tests
 make test
 # Equivalent: cargo test
 ```
@@ -229,17 +253,19 @@ export USDC_SAC_ADDRESS=G...         # USDC Stellar Asset Contract on testnet
 make deploy-testnet
 ```
 
-The command builds both contracts, deploys `ProjectRegistry` first, captures its contract ID, then deploys `InvestmentVault` wiring it to the registry. Both contract IDs are printed to the terminal and written to **`deploy/testnet.json`**:
+The command builds both contracts, deploys `ProjectRegistry` first, captures its contract ID, then deploys `InvestmentVault` wiring it to the registry. Both contract IDs and their WASM hashes are printed to the terminal and written to **`deploy/testnet.json`**:
 
 ```json
 {
   "network": "testnet",
   "project_registry": "C...",
-  "investment_vault": "C..."
+  "investment_vault": "C...",
+  "project_registry_wasm_hash": "",
+  "investment_vault_wasm_hash": ""
 }
 ```
 
-`deploy/testnet.json` is checked into the repository as a placeholder; `make deploy-testnet` overwrites it with the real IDs after each deployment.
+`deploy/testnet.json` is checked into the repository as a placeholder; `make deploy-testnet` overwrites it with the real IDs and WASM hashes after each deployment.
 
 ---
 
