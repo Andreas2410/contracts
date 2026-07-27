@@ -425,7 +425,13 @@ impl InvestmentVault {
     }
 
     /// Perform multiple deposits from different accounts in a single batch transaction (#184).
+    ///
+    /// Panics with `EmptyBatchDeposit` if `deposits` is empty (#178) — a no-op
+    /// batch is almost certainly a caller bug and should not silently succeed.
     pub fn batch_deposit(env: Env, deposits: Vec<(Address, i128)>) -> Vec<i128> {
+        if deposits.is_empty() {
+            panic_with_error!(&env, VaultError::EmptyBatchDeposit);
+        }
         let mut minted = Vec::new(&env);
         for deposit in deposits.iter() {
             minted.push_back(Self::deposit(env.clone(), deposit.0, deposit.1));
@@ -1004,6 +1010,75 @@ impl InvestmentVault {
             .persistent()
             .get(&VaultKey::ProjectInvestment(project_id))
             .unwrap_or(0)
+    }
+
+    /// Return USDC investment amounts for a list of project IDs in one call (#35).
+    ///
+    /// Results are returned in the same order as `project_ids`. Unknown or
+    /// unfunded projects return 0. Callers can map over the registry's
+    /// `total_projects()` count and call this once instead of issuing one
+    /// cross-contract call per project.
+    pub fn get_project_investments_batch(env: Env, project_ids: Vec<u32>) -> Vec<i128> {
+        require_current_state(&env);
+        let mut results = Vec::new(&env);
+        for id in project_ids.iter() {
+            let amount: i128 = env
+                .storage()
+                .persistent()
+                .get(&VaultKey::ProjectInvestment(id))
+                .unwrap_or(0);
+            results.push_back(amount);
+        }
+        results
+    }
+
+    /// Return USDC investment amounts for all projects 1..=`total_projects` (#35).
+    ///
+    /// Each tuple is `(project_id, invested_usdc)`. Projects with no recorded
+    /// investment are included with a value of 0 so the caller can always
+    /// correlate by position.
+    pub fn get_all_project_investments(env: Env) -> Vec<(u32, i128)> {
+        require_current_state(&env);
+        let registry_addr: Address = env.storage().instance().get(&VaultKey::Registry).unwrap();
+        let total = registry_interface::Client::new(&env, &registry_addr).total_projects();
+        let mut results = Vec::new(&env);
+        for id in 1..=total {
+            let amount: i128 = env
+                .storage()
+                .persistent()
+                .get(&VaultKey::ProjectInvestment(id))
+                .unwrap_or(0);
+            results.push_back((id, amount));
+        }
+        results
+    }
+
+    // ── Withdrawal sliding window (#36) ───────────────────────────────────────
+
+    /// Configure the minimum number of ledgers that must pass after a deposit
+    /// before the same address may withdraw (#36).
+    ///
+    /// `ledgers = 1` (the default) retains the existing behaviour: a deposit and
+    /// a withdrawal cannot appear in the same ledger. Larger values enforce a
+    /// longer cooldown — e.g., `ledgers = 720` (≈1 hour at 5 s/ledger) prevents
+    /// instant-exit strategies in volatile markets.
+    /// `ledgers = 0` disables the window entirely (not recommended).
+    #[only_owner]
+    pub fn set_withdrawal_window(env: Env, ledgers: u32) {
+        require_current_state(&env);
+        env.storage()
+            .instance()
+            .set(&VaultKey::WithdrawalWindowLedgers, &ledgers);
+        events::withdrawal_window_set(&env, ledgers);
+    }
+
+    /// Return the currently configured withdrawal window in ledgers (#36).
+    /// Returns 1 when no explicit window has been set (same-ledger protection).
+    pub fn get_withdrawal_window(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&VaultKey::WithdrawalWindowLedgers)
+            .unwrap_or(1)
     }
 
     // ── Bridge ────────────────────────────────────────────────────────────────
@@ -1803,7 +1878,12 @@ fn check_deposit_lock(env: &Env, address: &Address) {
         .persistent()
         .get::<_, u32>(&VaultKey::LastDeposit(address.clone()))
     {
-        if env.ledger().sequence() == last_seq {
+        let window: u32 = env
+            .storage()
+            .instance()
+            .get(&VaultKey::WithdrawalWindowLedgers)
+            .unwrap_or(1);
+        if env.ledger().sequence() < last_seq.saturating_add(window) {
             panic_with_error!(env, VaultError::DepositLocked);
         }
     }

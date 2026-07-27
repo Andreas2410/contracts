@@ -87,6 +87,8 @@ pub enum VaultError {
     SelfFundingNotAllowed = 39,
     /// A batch funding request contains duplicate project IDs (#188).
     DuplicateProjectId = 40,
+    /// batch_deposit received an empty investor list (#178).
+    EmptyBatchDeposit = 41,
 }
 
 #[contracttype]
@@ -153,6 +155,9 @@ pub enum VaultKey {
     /// Optional emergency-admin address that may pause/unpause without
     /// holding full owner privileges (#43). Unset means no emergency admin.
     EmergencyAdmin,
+    /// Minimum ledger gap between a deposit and a withdrawal (#36).
+    /// Default is 1 (blocks same-ledger exit). Set via set_withdrawal_window.
+    WithdrawalWindowLedgers,
 }
 
 /// Container for wormhole bridge data keys.

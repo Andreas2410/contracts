@@ -2207,3 +2207,186 @@ fn test_all_only_owner_functions_reject_non_admin_caller() {
         );
     }
 }
+
+// ── Issue #177: withdraw() must reject a zero-amount withdrawal ───────────────
+
+#[test]
+fn test_withdraw_rejects_zero_shares() {
+    // A zero-share withdrawal carries no economic value and is rejected up-front
+    // via the SharesNotPositive / WithdrawBelowMinimum guards (#177).
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    // Advance one ledger so the deposit lock doesn't fire first.
+    s.env.ledger().with_mut(|li| li.sequence_number += 1);
+
+    let result = s.vault_client.try_withdraw(&investor, &0i128, &0);
+    assert!(
+        result.is_err(),
+        "withdraw() should reject a zero shares_amount"
+    );
+}
+
+#[test]
+fn test_withdraw_rejects_below_minimum_shares() {
+    // Any amount below MIN_WITHDRAW (100 shares) is also rejected (#177).
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    s.env.ledger().with_mut(|li| li.sequence_number += 1);
+
+    // 1 stroop is below MIN_WITHDRAW = 100_0000000
+    let result = s.vault_client.try_withdraw(&investor, &1i128, &0);
+    assert!(
+        result.is_err(),
+        "withdraw() should reject shares_amount below MIN_WITHDRAW"
+    );
+}
+
+// ── Issue #178: batch_deposit() must revert on an empty investor list ─────────
+
+#[test]
+fn test_batch_deposit_empty_list_reverts() {
+    // A caller passing an empty deposits Vec is almost certainly a bug;
+    // the contract now panics with EmptyBatchDeposit rather than silently
+    // returning an empty minted list (#178).
+    let s = setup();
+    let empty: soroban_sdk::Vec<(Address, i128)> = soroban_sdk::Vec::new(&s.env);
+    let result = s.vault_client.try_batch_deposit(&empty);
+    assert!(
+        result.is_err(),
+        "batch_deposit() should revert on an empty investor list"
+    );
+}
+
+// ── Issue #35: getter functions for individual project investment amounts ──────
+
+#[test]
+fn test_get_project_investments_batch_returns_correct_amounts() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator1 = Address::generate(&s.env);
+    let creator2 = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 5_000_0000000i128);
+    s.vault_client.deposit(&investor, &5_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator1, &true);
+    registry_client.set_whitelist(&creator2, &true);
+    let pid1 = registry_client.create_project(
+        &creator1,
+        &String::from_str(&s.env, "Alpha"),
+        &String::from_str(&s.env, "desc"),
+        &100u32,
+        &80u32,
+        &test_metadata_hash(&s.env),
+    );
+    let pid2 = registry_client.create_project(
+        &creator2,
+        &String::from_str(&s.env, "Beta"),
+        &String::from_str(&s.env, "desc"),
+        &90u32,
+        &70u32,
+        &test_metadata_hash(&s.env),
+    );
+
+    let fund1 = 1_000_0000000i128;
+    let fund2 = 500_0000000i128;
+    s.vault_client.fund_project(&pid1, &fund1);
+    s.vault_client.fund_project(&pid2, &fund2);
+
+    let ids = soroban_sdk::vec![&s.env, pid1, pid2];
+    let amounts = s.vault_client.get_project_investments_batch(&ids);
+
+    assert_eq!(amounts.len(), 2);
+    assert_eq!(amounts.get(0).unwrap(), fund1);
+    assert_eq!(amounts.get(1).unwrap(), fund2);
+}
+
+#[test]
+fn test_get_all_project_investments_returns_all() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 2_000_0000000i128);
+    s.vault_client.deposit(&investor, &2_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let pid = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "Gamma"),
+        &String::from_str(&s.env, "desc"),
+        &100u32,
+        &100u32,
+        &test_metadata_hash(&s.env),
+    );
+
+    let funded = 800_0000000i128;
+    s.vault_client.fund_project(&pid, &funded);
+
+    let all = s.vault_client.get_all_project_investments();
+    assert_eq!(all.len(), 1);
+    let (id, amt) = all.get(0).unwrap();
+    assert_eq!(id, pid);
+    assert_eq!(amt, funded);
+}
+
+// ── Issue #36: withdrawal sliding window ─────────────────────────────────────
+
+#[test]
+fn test_withdrawal_window_blocks_early_exit() {
+    // With a 5-ledger window, a withdraw attempted before 5 ledgers have
+    // elapsed since the deposit must be rejected with DepositLocked (#36).
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+
+    // Set a 5-ledger withdrawal window.
+    s.vault_client.set_withdrawal_window(&5u32);
+
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    // Only 2 ledgers elapsed — still inside the 5-ledger window.
+    s.env.ledger().with_mut(|li| li.sequence_number += 2);
+
+    let result = s.vault_client.try_withdraw(&investor, &shares, &0);
+    assert!(
+        result.is_err(),
+        "withdraw should be blocked inside the sliding window"
+    );
+}
+
+#[test]
+fn test_withdrawal_window_allows_exit_after_window() {
+    // After the configured window has elapsed the withdrawal succeeds (#36).
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+
+    s.vault_client.set_withdrawal_window(&5u32);
+
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    // Advance past the 5-ledger window.
+    s.env.ledger().with_mut(|li| li.sequence_number += 5);
+
+    let returned = s.vault_client.withdraw(&investor, &shares, &0);
+    assert!(returned > 0, "withdraw should succeed after window expires");
+}
+
+#[test]
+fn test_get_set_withdrawal_window() {
+    // Default window is 1; set_withdrawal_window updates it (#36).
+    let s = setup();
+    assert_eq!(s.vault_client.get_withdrawal_window(), 1u32);
+    s.vault_client.set_withdrawal_window(&10u32);
+    assert_eq!(s.vault_client.get_withdrawal_window(), 10u32);
+}
+}
