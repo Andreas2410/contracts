@@ -1272,6 +1272,35 @@ impl InvestmentVault {
         events::flash_loan_fee_set(&env, fee_bps);
     }
 
+    /// Query whether a funding round is currently active (#38).
+    pub fn is_funding_round_active(env: Env) -> bool {
+        require_current_state(&env);
+        env.storage()
+            .instance()
+            .get(&VaultKey::FundingRoundActive)
+            .unwrap_or(false)
+    }
+
+    /// Open a funding round — share transfers are blocked until it is closed (#38).
+    #[only_owner]
+    pub fn start_funding_round(env: Env) {
+        require_current_state(&env);
+        env.storage()
+            .instance()
+            .set(&VaultKey::FundingRoundActive, &true);
+        events::funding_round_started(&env);
+    }
+
+    /// Close the active funding round, re-enabling share transfers (#38).
+    #[only_owner]
+    pub fn end_funding_round(env: Env) {
+        require_current_state(&env);
+        env.storage()
+            .instance()
+            .set(&VaultKey::FundingRoundActive, &false);
+        events::funding_round_ended(&env);
+    }
+
     /// Return the current flash loan fee in basis points (#184).
     pub fn flash_loan_fee(env: Env) -> i128 {
         require_current_state(&env);
@@ -2036,6 +2065,16 @@ impl FungibleToken for InvestmentVault {
         // equivalent — shares sent here can never be recovered (#118).
         if to.address() == e.current_contract_address() {
             panic_with_error!(e, VaultError::TransferToVaultBlocked);
+        }
+        // Block share transfers while a funding round is active to prevent
+        // vault-accounting manipulation during project funding (#38).
+        let round_active: bool = e
+            .storage()
+            .instance()
+            .get(&VaultKey::FundingRoundActive)
+            .unwrap_or(false);
+        if round_active {
+            panic_with_error!(e, VaultError::FundingRoundActive);
         }
         Base::transfer(e, &from, &to, amount);
         lock_deposit(e, &to.address());

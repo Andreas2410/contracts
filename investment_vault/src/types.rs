@@ -87,6 +87,8 @@ pub enum VaultError {
     SelfFundingNotAllowed = 39,
     /// A batch funding request contains duplicate project IDs (#188).
     DuplicateProjectId = 40,
+    /// Share transfers are blocked because a funding round is active (#38).
+    FundingRoundActive = 41,
     /// Funding would push cumulative investment in a project above its per-project cap (#32).
     InvestmentCapExceeded = 41,
 }
@@ -155,6 +157,10 @@ pub enum VaultKey {
     /// Optional emergency-admin address that may pause/unpause without
     /// holding full owner privileges (#43). Unset means no emergency admin.
     EmergencyAdmin,
+    /// Whether a funding round is currently active (#38).
+    /// Share transfers are blocked while this flag is set to prevent
+    /// vault-accounting manipulation during active project funding.
+    FundingRoundActive,
     /// Admin-configurable maximum USDC investment per project (#32).
     /// Defaults to MAX_INVESTMENT_PER_PROJECT when not set.
     MaxInvestmentPerProject,
