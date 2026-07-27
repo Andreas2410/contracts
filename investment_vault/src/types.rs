@@ -89,6 +89,8 @@ pub enum VaultError {
     DuplicateProjectId = 40,
     /// Share transfers are blocked because a funding round is active (#38).
     FundingRoundActive = 41,
+    /// Funding would push cumulative investment in a project above its per-project cap (#32).
+    InvestmentCapExceeded = 41,
 }
 
 #[contracttype]
@@ -159,6 +161,12 @@ pub enum VaultKey {
     /// Share transfers are blocked while this flag is set to prevent
     /// vault-accounting manipulation during active project funding.
     FundingRoundActive,
+    /// Admin-configurable maximum USDC investment per project (#32).
+    /// Defaults to MAX_INVESTMENT_PER_PROJECT when not set.
+    MaxInvestmentPerProject,
+    /// Ledger timestamp (seconds) at which a project was first funded (#34).
+    /// Used for time-weighted expected-returns calculation.
+    InvestmentTimestamp(u32),
 }
 
 /// Container for wormhole bridge data keys.

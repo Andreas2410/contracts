@@ -88,6 +88,8 @@ pub enum RegistryError {
     Paused = 35,
     /// Caller is neither the owner nor the configured emergency admin.
     NotEmergencyAdmin = 36,
+    /// Batch score update request exceeds the configured maximum batch size (#31).
+    BatchTooLarge = 37,
 }
 
 /// Certification state for a green project (#130).
