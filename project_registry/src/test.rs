@@ -417,6 +417,23 @@ fn test_certify_project() {
 }
 
 #[test]
+#[should_panic]
+fn test_certify_already_certified_project_panics() {
+    let (env, _admin, whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    client.certify_project(&whitelister, &id, &CertificationStatus::Certified);
+    client.certify_project(&whitelister, &id, &CertificationStatus::Certified);
+}
+
+#[test]
 fn test_maturity_date_is_mature() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
@@ -594,6 +611,20 @@ fn test_uri_below_min_length_panics() {
 }
 
 #[test]
+#[should_panic]
+fn test_create_project_empty_uri_panics() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    client.create_project(
+        &creator,
+        &String::from_str(&env, ""),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+}
+
+#[test]
 fn test_uri_exactly_max_length_accepted() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
@@ -666,6 +697,28 @@ fn test_deposit_and_get_collateral() {
 
 #[test]
 #[should_panic]
+fn test_deposit_zero_collateral_panics() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    let token_admin = Address::generate(&env);
+    let token_sac = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_sac).mint(&creator, &1_000i128);
+
+    client.deposit_collateral(&project_id, &creator, &token_sac, &0i128);
+}
+
+#[test]
+#[should_panic]
 fn test_non_owner_cannot_deposit_collateral() {
     let (env, _admin, _whitelister, client) = setup();
     let creator = Address::generate(&env);
@@ -709,6 +762,31 @@ fn test_liquidate_collateral_by_admin() {
     client.liquidate_collateral(&project_id, &token_sac, &recipient);
 
     assert_eq!(client.get_collateral(&project_id, &token_sac), 0i128);
+}
+
+#[test]
+#[should_panic]
+fn test_liquidate_collateral_before_maturity_panics() {
+    let (env, admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+
+    let now = env.ledger().timestamp();
+    let project_id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &(now + 1000),
+        &test_metadata_hash(&env),
+    );
+
+    let token_sac = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    soroban_sdk::token::StellarAssetClient::new(&env, &token_sac).mint(&creator, &1_000i128);
+    client.deposit_collateral(&project_id, &creator, &token_sac, &800i128);
+
+    let recipient = Address::generate(&env);
+    client.liquidate_collateral(&project_id, &token_sac, &recipient);
 }
 
 #[test]
