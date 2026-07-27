@@ -496,6 +496,14 @@ pub fn ownership_transferred(env: &Env, old_owner: &Address, new_owner: &Address
     .publish(env);
 }
 
+/// Emitted when the admin changes the withdrawal sliding-window length (#36).
+#[contractevent]
+pub struct WithdrawalWindowSet {
+    pub ledgers: u32,
+}
+
+pub fn withdrawal_window_set(env: &Env, ledgers: u32) {
+    WithdrawalWindowSet { ledgers }.publish(env);
 /// Emitted when the admin opens a funding round (#38).
 #[contractevent]
 pub struct FundingRoundStarted {}
