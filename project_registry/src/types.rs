@@ -90,6 +90,8 @@ pub enum RegistryError {
     NotEmergencyAdmin = 36,
     /// Batch score update request exceeds the configured maximum batch size (#31).
     BatchTooLarge = 37,
+    /// Project is already certified with the target status.
+    AlreadyCertified = 38,
 }
 
 /// Certification state for a green project (#130).

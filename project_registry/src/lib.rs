@@ -429,6 +429,9 @@ impl ProjectRegistry {
             .persistent()
             .get(&DataKey::Project(project_id))
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+        if project.certification_status == status {
+            panic_with_error!(&env, RegistryError::AlreadyCertified);
+        }
         project.certification_status = status.clone();
         env.storage()
             .persistent()
@@ -1121,6 +1124,14 @@ fn update_credit_quality_score_internal(env: Env, project_id: u32, credit_qualit
 }
 
 fn liquidate_collateral_internal(env: Env, project_id: u32, token: Address, recipient: Address) {
+    let project: ProjectData = env
+        .storage()
+        .persistent()
+        .get(&DataKey::Project(project_id))
+        .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+    if project.maturity_date > 0 && env.ledger().timestamp() < project.maturity_date {
+        panic_with_error!(&env, RegistryError::ProjectNotMature);
+    }
     let key = DataKey::Collateral(project_id, token.clone());
     let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
     if balance <= 0 {
