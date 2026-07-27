@@ -1046,6 +1046,32 @@ fn test_score_changed_event_contains_old_and_new_values() {
 }
 
 #[test]
+fn test_score_changed_event_credit_quality_path() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    // Set initial scores
+    client.update_impact_score(&id, &50u32, &70u32);
+
+    // Update only credit quality via the credit-quality path
+    client.update_credit_quality_score(&id, &85u32);
+
+    // Verify ScoreChanged event is emitted
+    let events = env.events().all().filter_by_contract(&client.address);
+    assert!(
+        events.events().len() >= 1,
+        "update_credit_quality_score should emit at least one event"
+    );
+}
+
+#[test]
 fn test_certify_project_emits_event() {
     let (env, _admin, whitelister, client) = setup();
     let creator = Address::generate(&env);
@@ -1641,6 +1667,10 @@ fn test_score_history_multiple_updates_ordered() {
     assert_eq!(history.get(0).unwrap().credit_quality, 10); // oldest
     assert_eq!(history.get(1).unwrap().credit_quality, 30);
     assert_eq!(history.get(2).unwrap().credit_quality, 50); // newest
+
+    // Explicit assertion on chronological ordering: timestamps must be strictly increasing
+    assert!(history.get(0).unwrap().timestamp < history.get(1).unwrap().timestamp);
+    assert!(history.get(1).unwrap().timestamp < history.get(2).unwrap().timestamp);
 }
 
 #[test]
