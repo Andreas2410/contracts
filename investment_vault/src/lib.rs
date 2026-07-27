@@ -80,6 +80,19 @@ const MAX_HBS_SUPPLY: i128 = 10_000_000_000 * 10_000_000; // 10 billion shares
 const MAX_MULTISIG_SIGNERS: u32 = 10;
 const STATE_VERSION: u32 = 1;
 
+/// Default per-project investment cap: 5 million USDC (7 decimals) (#32).
+/// Prevents over-concentration of vault funds in a single project.
+/// Overridable per-deployment via `set_max_investment_per_project`.
+const MAX_INVESTMENT_PER_PROJECT: i128 = 5_000_000 * 10_000_000;
+
+/// Minimum deposit lock duration in seconds (#33).
+/// Depositors cannot withdraw within this window after their last deposit.
+/// Set to 1 day (86 400 s) to prevent flash-deposit-withdraw manipulation.
+const MIN_LOCK_PERIOD: u64 = 86_400;
+
+/// Seconds in one year, used for time-weighted expected-returns (#34).
+const ANNUAL_PERIOD_SECS: i128 = 31_536_000;
+
 mod composability;
 mod events;
 mod logic;
@@ -255,12 +268,19 @@ impl InvestmentVault {
         }
     }
 
-    /// Return cached expected returns — updated incrementally on `fund_project` (#81).
-    /// Use `refresh_expected_returns` to manually recompute from scratch.
+    /// Return expected returns across all funded projects using a time-weighted formula (#34).
+    ///
+    /// For each project with an `InvestmentTimestamp` (set when first funded), returns
+    /// are accrued proportionally to time elapsed since funding:
+    ///   `expected += investment * score_rate * elapsed / annual_period`
+    ///
+    /// Projects funded before this feature was deployed fall back to the static formula
+    /// (`investment * score_rate`) so no previously-funded project loses its contribution.
     pub fn get_expected_returns(env: Env) -> i128 {
         let registry_addr: Address = env.storage().instance().get(&VaultKey::Registry).unwrap();
         let registry = registry_interface::Client::new(&env, &registry_addr);
         let total_projects = registry.total_projects();
+        let now = env.ledger().timestamp();
 
         let mut expected: i128 = 0;
         for i in 1..=total_projects {
@@ -271,9 +291,24 @@ impl InvestmentVault {
                 .unwrap_or(0);
             if investment > 0 {
                 let project = registry.get_project(&i);
-                expected += investment
-                    * (project.credit_quality as i128 + project.green_impact as i128)
-                    / 200;
+                let score_rate =
+                    project.credit_quality as i128 + project.green_impact as i128;
+
+                let funded_at: u64 = env
+                    .storage()
+                    .persistent()
+                    .get(&VaultKey::InvestmentTimestamp(i))
+                    .unwrap_or(0);
+
+                if funded_at > 0 && now > funded_at {
+                    // Time-weighted: accrue interest over elapsed time (#34).
+                    let elapsed = (now - funded_at) as i128;
+                    expected +=
+                        investment * score_rate * elapsed / (200 * ANNUAL_PERIOD_SECS);
+                } else {
+                    // Static fallback for pre-existing investments without a timestamp.
+                    expected += investment * score_rate / 200;
+                }
             }
         }
 
@@ -1006,6 +1041,65 @@ impl InvestmentVault {
             .unwrap_or(0)
     }
 
+    // ── Per-project investment cap (#32) ──────────────────────────────────────
+
+    /// Set the maximum total USDC the vault may invest in any single project. Admin-only.
+    ///
+    /// Defaults to `MAX_INVESTMENT_PER_PROJECT` (5 M USDC) until explicitly changed.
+    /// Pass 0 to restore the compile-time default.
+    #[only_owner]
+    pub fn set_max_investment_per_project(env: Env, cap: i128) {
+        require_current_state(&env);
+        if cap < 0 {
+            panic_with_error!(&env, VaultError::AmountNotPositive);
+        }
+        let stored_cap = if cap == 0 { MAX_INVESTMENT_PER_PROJECT } else { cap };
+        env.storage()
+            .instance()
+            .set(&VaultKey::MaxInvestmentPerProject, &stored_cap);
+        events::investment_cap_set(&env, stored_cap);
+    }
+
+    /// Return the remaining USDC capacity that may still be invested in `project_id`.
+    ///
+    /// A return value of 0 means the cap is already reached; further funding calls will
+    /// fail with `InvestmentCapExceeded`.
+    pub fn investment_capacity(env: Env, project_id: u32) -> i128 {
+        require_current_state(&env);
+        let cap: i128 = env
+            .storage()
+            .instance()
+            .get(&VaultKey::MaxInvestmentPerProject)
+            .unwrap_or(MAX_INVESTMENT_PER_PROJECT);
+        let invested: i128 = env
+            .storage()
+            .persistent()
+            .get(&VaultKey::ProjectInvestment(project_id))
+            .unwrap_or(0);
+        let remaining = cap - invested;
+        if remaining < 0 { 0 } else { remaining }
+    }
+
+    // ── Deposit lock-up expiry query (#33) ────────────────────────────────────
+
+    /// Return the Unix timestamp (seconds) at which `account`'s deposit lock expires.
+    ///
+    /// Returns 0 if `account` has never deposited, meaning no lock is in force.
+    /// If the returned timestamp is in the future, `withdraw` will reject the call
+    /// with `DepositLocked`.
+    pub fn get_deposit_lock_expiry(env: Env, account: Address) -> u64 {
+        let deposited_at: u64 = env
+            .storage()
+            .persistent()
+            .get(&VaultKey::LastDeposit(account))
+            .unwrap_or(0);
+        if deposited_at == 0 {
+            0
+        } else {
+            deposited_at + MIN_LOCK_PERIOD
+        }
+    }
+
     // ── Bridge ────────────────────────────────────────────────────────────────
 
     /// Set the cross-chain bridge contract address (owner-only) (#184).
@@ -1571,6 +1665,21 @@ fn fund_project_internal(env: Env, project_id: u32, amount: i128) {
         panic_with_error!(&env, VaultError::BelowMinGreenImpact);
     }
 
+    // Enforce the per-project investment cap before committing any USDC (#32).
+    let cap: i128 = env
+        .storage()
+        .instance()
+        .get(&VaultKey::MaxInvestmentPerProject)
+        .unwrap_or(MAX_INVESTMENT_PER_PROJECT);
+    let current_investment: i128 = env
+        .storage()
+        .persistent()
+        .get(&VaultKey::ProjectInvestment(project_id))
+        .unwrap_or(0);
+    if current_investment + amount > cap {
+        panic_with_error!(&env, VaultError::InvestmentCapExceeded);
+    }
+
     let usdc_sac: Address = env.storage().instance().get(&VaultKey::UsdcSac).unwrap();
     let liquid = soroban_sdk::token::TokenClient::new(&env, &usdc_sac)
         .balance(&env.current_contract_address());
@@ -1600,6 +1709,15 @@ fn fund_project_internal(env: Env, project_id: u32, amount: i128) {
     env.storage()
         .persistent()
         .set(&VaultKey::ProjectInvestment(project_id), &(prev + amount));
+
+    // Record the first funding timestamp for time-weighted returns (#34).
+    // Only set once — subsequent fund_project calls don't shift the origin.
+    let ts_key = VaultKey::InvestmentTimestamp(project_id);
+    if !env.storage().persistent().has(&ts_key) {
+        env.storage()
+            .persistent()
+            .set(&ts_key, &env.ledger().timestamp());
+    }
 
     let total_inv: i128 = env
         .storage()
@@ -1790,20 +1908,24 @@ fn require_emergency_admin(env: &Env, caller: &Address) {
     }
 }
 
+/// Record the current ledger timestamp as the depositor's lock origin (#33).
+/// The lock prevents withdrawal for MIN_LOCK_PERIOD seconds after each deposit,
+/// blocking flash-deposit-withdraw attacks that could manipulate share pricing.
 fn lock_deposit(env: &Env, address: &Address) {
     env.storage().persistent().set(
         &VaultKey::LastDeposit(address.clone()),
-        &env.ledger().sequence(),
+        &env.ledger().timestamp(),
     );
 }
 
+/// Reject a withdrawal if the caller's deposit lock has not yet expired (#33).
 fn check_deposit_lock(env: &Env, address: &Address) {
-    if let Some(last_seq) = env
+    if let Some(deposited_at) = env
         .storage()
         .persistent()
-        .get::<_, u32>(&VaultKey::LastDeposit(address.clone()))
+        .get::<_, u64>(&VaultKey::LastDeposit(address.clone()))
     {
-        if env.ledger().sequence() == last_seq {
+        if env.ledger().timestamp() < deposited_at + MIN_LOCK_PERIOD {
             panic_with_error!(env, VaultError::DepositLocked);
         }
     }

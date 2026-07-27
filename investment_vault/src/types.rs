@@ -87,6 +87,8 @@ pub enum VaultError {
     SelfFundingNotAllowed = 39,
     /// A batch funding request contains duplicate project IDs (#188).
     DuplicateProjectId = 40,
+    /// Funding would push cumulative investment in a project above its per-project cap (#32).
+    InvestmentCapExceeded = 41,
 }
 
 #[contracttype]
@@ -153,6 +155,12 @@ pub enum VaultKey {
     /// Optional emergency-admin address that may pause/unpause without
     /// holding full owner privileges (#43). Unset means no emergency admin.
     EmergencyAdmin,
+    /// Admin-configurable maximum USDC investment per project (#32).
+    /// Defaults to MAX_INVESTMENT_PER_PROJECT when not set.
+    MaxInvestmentPerProject,
+    /// Ledger timestamp (seconds) at which a project was first funded (#34).
+    /// Used for time-weighted expected-returns calculation.
+    InvestmentTimestamp(u32),
 }
 
 /// Container for wormhole bridge data keys.
