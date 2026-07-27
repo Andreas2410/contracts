@@ -504,6 +504,20 @@ pub struct WithdrawalWindowSet {
 
 pub fn withdrawal_window_set(env: &Env, ledgers: u32) {
     WithdrawalWindowSet { ledgers }.publish(env);
+/// Emitted when the admin opens a funding round (#38).
+#[contractevent]
+pub struct FundingRoundStarted {}
+
+pub fn funding_round_started(env: &Env) {
+    FundingRoundStarted {}.publish(env);
+}
+
+/// Emitted when the admin closes a funding round (#38).
+#[contractevent]
+pub struct FundingRoundEnded {}
+
+pub fn funding_round_ended(env: &Env) {
+    FundingRoundEnded {}.publish(env);
 /// Emitted when the admin changes the per-project investment cap (#32).
 #[contractevent]
 pub struct InvestmentCapSet {

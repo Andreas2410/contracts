@@ -2198,6 +2198,9 @@ fn test_all_only_owner_functions_reject_non_admin_caller() {
         s.vault_client.try_set_emergency_admin(&None).is_err(),
         s.vault_client.try_compact_storage().is_err(),
         s.vault_client.try_upgrade(&hash32).is_err(),
+        s.vault_client
+            .try_set_volume_fee_tier(&500_0000000i128, &50u32)
+            .is_err(),
     ];
 
     for (i, rejected) in results.iter().enumerate() {
@@ -2310,6 +2313,75 @@ fn test_get_project_investments_batch_returns_correct_amounts() {
 
 #[test]
 fn test_get_all_project_investments_returns_all() {
+// ── Issue #176: deposit() must reject a zero-amount deposit ──────────────────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_deposit_rejects_zero_amount() {
+    // Zero is ≤ 0; the contract panics with AmountNotPositive (#1) before
+    // any transfer or share calculation is attempted.
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    s.vault_client.deposit(&investor, &0i128);
+}
+
+// ── Issue #181: fund_project() must reject a zero/negative amount ─────────────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_fund_project_rejects_zero_amount() {
+    // fund_project_internal checks `amount <= 0` before the cross-contract
+    // registry call, so no USDC transfer or project lookup occurs.
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmFundZero"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    s.vault_client.fund_project(&project_id, &0i128);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_fund_project_rejects_negative_amount() {
+    // Negative i128 also satisfies `amount <= 0`; confirm the guard fires
+    // for negative values just as it does for zero.
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmFundNeg"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    s.vault_client.fund_project(&project_id, &-1i128);
+}
+
+// ── Issue #182: claim_queued() is idempotent against double-claim ─────────────
+
+#[test]
+fn test_claim_queued_is_idempotent_against_double_claim() {
+    // claim() advances the queue head past every settled entry. A second
+    // call on the now-empty queue hits the head == tail fast-path and
+    // returns 0 without transferring USDC again — no double-payout.
     let s = setup();
     let investor = Address::generate(&s.env);
     let creator = Address::generate(&s.env);
@@ -2389,4 +2461,275 @@ fn test_get_set_withdrawal_window() {
     s.vault_client.set_withdrawal_window(&10u32);
     assert_eq!(s.vault_client.get_withdrawal_window(), 10u32);
 }
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmIdempotent"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    // Fund 490 USDC (49% util) to reduce liquidity below the full redemption
+    // value, forcing the withdrawal into the FIFO queue.
+    s.vault_client.fund_project(&project_id, &490_0000000i128);
+    s.env.ledger().with_mut(|li| {
+        li.sequence_number += 1;
+    });
+    // Shares are burned immediately; claim is enqueued.
+    let enqueued = s.vault_client.withdraw(&investor, &shares, &0);
+    assert_eq!(enqueued, 0);
+    assert_eq!(s.vault_client.balance(&investor), 0);
+
+    // Restore liquidity so claim() can settle.
+    let funder = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &funder, 2_000_0000000i128);
+    s.vault_client.deposit(&funder, &2_000_0000000i128);
+
+    let usdc_client = TokenClient::new(&s.env, &s.usdc_sac);
+
+    // First claim: settles the queued entry, transfers USDC to investor.
+    let paid_first = s.vault_client.claim();
+    assert!(paid_first > 0);
+    let balance_after_first = usdc_client.balance(&investor);
+    assert_eq!(balance_after_first, paid_first);
+
+    // Second claim: queue is empty (head == tail) → returns 0 immediately.
+    let paid_second = s.vault_client.claim();
+    assert_eq!(paid_second, 0);
+
+    // Investor's USDC balance must not have changed — no double payout.
+    assert_eq!(usdc_client.balance(&investor), balance_after_first);
+}
+
+// ── Issue #39: dynamic (volume-tiered) fee structure ─────────────────────────
+
+#[test]
+fn test_volume_fee_tier_applies_discount_for_large_deposits() {
+    // A two-tier fee schedule: deposits < threshold pay base_bps;
+    // deposits >= threshold pay the lower discounted_bps rate.
+    let s = setup();
+    let fee_recipient = Address::generate(&s.env);
+    let usdc_client = TokenClient::new(&s.env, &s.usdc_sac);
+
+    // Flat base rate: 200 bps (2%)
+    s.vault_client.set_management_fee(&200u32, &fee_recipient);
+
+    // Volume tier: deposits >= 500 USDC → 50 bps (0.5%)
+    let threshold = 500_0000000i128; // 500 USDC
+    s.vault_client.set_volume_fee_tier(&threshold, &50u32);
+    assert_eq!(s.vault_client.get_volume_fee_tier(), (threshold, 50u32));
+
+    // Below threshold: flat 200 bps applies.
+    let small_investor = Address::generate(&s.env);
+    let small_deposit = 100_0000000i128; // 100 USDC < threshold
+    mint_usdc(&s.env, &s.usdc_sac, &small_investor, small_deposit);
+    s.vault_client.deposit(&small_investor, &small_deposit);
+    let expected_small_fee = small_deposit * 200 / 10_000; // 2 USDC
+    assert_eq!(usdc_client.balance(&fee_recipient), expected_small_fee);
+
+    // At/above threshold: discounted 50 bps applies.
+    let large_investor = Address::generate(&s.env);
+    let large_deposit = 1_000_0000000i128; // 1000 USDC >= threshold
+    mint_usdc(&s.env, &s.usdc_sac, &large_investor, large_deposit);
+    s.vault_client.deposit(&large_investor, &large_deposit);
+    let expected_large_fee = large_deposit * 50 / 10_000; // 5 USDC
+    assert_eq!(
+        usdc_client.balance(&fee_recipient),
+        expected_small_fee + expected_large_fee
+    );
+}
+
+#[test]
+fn test_volume_fee_tier_disabled_reverts_to_flat_rate() {
+    // Setting threshold=0 removes the tier entirely; all subsequent deposits
+    // pay the flat ManagementFeeBps regardless of size.
+    let s = setup();
+    let fee_recipient = Address::generate(&s.env);
+    let usdc_client = TokenClient::new(&s.env, &s.usdc_sac);
+
+    s.vault_client.set_management_fee(&200u32, &fee_recipient);
+    s.vault_client.set_volume_fee_tier(&500_0000000i128, &50u32);
+
+    // Disable the tier.
+    s.vault_client.set_volume_fee_tier(&0i128, &0u32);
+    assert_eq!(s.vault_client.get_volume_fee_tier(), (0i128, 0u32));
+
+    let investor = Address::generate(&s.env);
+    let deposit = 1_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, deposit);
+    s.vault_client.deposit(&investor, &deposit);
+
+    // Full 200 bps applied despite deposit being above the old threshold.
+    let expected_fee = deposit * 200 / 10_000;
+    assert_eq!(usdc_client.balance(&fee_recipient), expected_fee);
+}
+
+#[test]
+#[should_panic]
+fn test_volume_fee_tier_is_admin_only() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+    s.env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &stranger,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &s.vault_address,
+            fn_name: "set_volume_fee_tier",
+            args: soroban_sdk::vec![
+                &s.env,
+                500_0000000i128.into_val(&s.env),
+                50u32.into_val(&s.env)
+            ],
+            sub_invokes: &[],
+        },
+    }]);
+    s.vault_client.set_volume_fee_tier(&500_0000000i128, &50u32);
+// ── #179: convert_to_shares() overflow guard on extremely large deposits ──────
+
+/// Verify that `convert_to_shares` panics (rather than silently wrapping) when
+/// the intermediate multiplication `usdc_amount * total_shares` would overflow
+/// i128.  Soroban contracts are compiled in debug mode for tests, where Rust
+/// arithmetic overflow is a panic; this test documents and guards that behavior
+/// so an accidental `--release` silent-wrap regression is caught by CI.
+#[test]
+#[should_panic]
+fn test_convert_to_shares_near_i128_max_overflows_visibly() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+
+    // Seed the vault with two deposits so total_shares and total_assets are
+    // both non-zero and the ratio is > 1 (more shares than assets). This
+    // forces the multiplication path: usdc_amount * total_shares / total_assets.
+    let seed = 1_000_0000000i128; // 1 000 USDC (7-decimal)
+    mint_usdc(&s.env, &s.usdc_sac, &investor, seed * 2);
+    s.vault_client.deposit(&investor, &seed);
+
+    // Near-maximum i128 value; multiplying this by any total_shares > 1
+    // will overflow a signed 128-bit integer.
+    let near_max = i128::MAX / 2 + 1;
+    // Should panic — not silently wrap — satisfying the overflow-guard criterion.
+    let _ = s.vault_client.convert_to_shares(&near_max);
+}
+
+/// A near-max amount on an *empty* vault takes the 1:1 fast-path and must
+/// never overflow (there is no multiplication on that path).
+#[test]
+fn test_convert_to_shares_near_i128_max_empty_vault_is_one_to_one() {
+    let s = setup();
+    // Empty vault → 1:1 branch, no multiplication at all.
+    let near_max = i128::MAX / 2;
+    let shares = s.vault_client.convert_to_shares(&near_max);
+    assert_eq!(shares, near_max, "empty-vault path must be exactly 1:1");
+}
+
+// ── #180: flash_loan() succeeds when borrower repays in the same transaction ──
+
+/// Mock flash-loan receiver that always returns `true` (repayment confirmed).
+/// Registered as a Soroban contract so the vault can cross-contract-call it.
+mod mock_flash_receiver {
+    use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+
+    #[contract]
+    pub struct MockRepayingReceiver;
+
+    #[contractimpl]
+    impl MockRepayingReceiver {
+        /// Always signals successful repayment.
+        pub fn flash_loan_callback(
+            _env: Env,
+            _initiator: Address,
+            _vault: Address,
+            _amount: i128,
+            _fee: i128,
+            _data: Bytes,
+        ) -> bool {
+            true
+        }
+    }
+}
+
+/// Companion to the (implicit) failure test: confirm that a well-behaved
+/// borrower which returns `true` from `flash_loan_callback` completes the
+/// flash loan without the vault panicking.
+#[test]
+fn test_flash_loan_succeeds_with_valid_same_transaction_repayment() {
+    let s = setup();
+
+    // Fund the vault so it has assets to lend.
+    let investor = Address::generate(&s.env);
+    let deposit_amount = 10_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, deposit_amount);
+    s.vault_client.deposit(&investor, &deposit_amount);
+
+    // Register the mock borrower that always repays.
+    let borrower = s
+        .env
+        .register(mock_flash_receiver::MockRepayingReceiver, ());
+    let initiator = Address::generate(&s.env);
+
+    // Set a 10 bps flash-loan fee so the fee path is exercised.
+    s.vault_client.set_flash_loan_fee(&10i128);
+
+    let loan_amount = 1_000_0000000i128;
+
+    // Must not panic — borrower returns true → repayment succeeds.
+    s.vault_client.execute_flash_loan(
+        &initiator,
+        &borrower,
+        &loan_amount,
+        &soroban_sdk::Bytes::new(&s.env),
+    );
+
+    // Vault total-assets must be at least as large as before the loan:
+    // the fee is kept by the vault, so assets >= original deposit.
+    assert!(
+        s.vault_client.total_assets() >= deposit_amount,
+        "vault must retain at least the original deposit after a successful flash loan"
+    );
+}
+
+/// Verify that a borrower whose callback returns `false` causes the vault to
+/// panic, enforcing same-transaction repayment.
+#[test]
+#[should_panic(expected = "flash loan callback failed")]
+fn test_flash_loan_fails_without_repayment() {
+    mod mock_failing_receiver {
+        use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+
+        #[contract]
+        pub struct MockFailingReceiver;
+
+        #[contractimpl]
+        impl MockFailingReceiver {
+            pub fn flash_loan_callback(
+                _env: Env,
+                _initiator: Address,
+                _vault: Address,
+                _amount: i128,
+                _fee: i128,
+                _data: Bytes,
+            ) -> bool {
+                false // simulate missing repayment
+            }
+        }
+    }
+
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let deposit_amount = 10_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, deposit_amount);
+    s.vault_client.deposit(&investor, &deposit_amount);
+
+    let borrower = s
+        .env
+        .register(mock_failing_receiver::MockFailingReceiver, ());
+
+    s.vault_client.execute_flash_loan(
+        &Address::generate(&s.env),
+        &borrower,
+        &1_000_0000000i128,
+        &soroban_sdk::Bytes::new(&s.env),
+    );
 }

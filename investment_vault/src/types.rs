@@ -89,6 +89,8 @@ pub enum VaultError {
     DuplicateProjectId = 40,
     /// batch_deposit received an empty investor list (#178).
     EmptyBatchDeposit = 41,
+    /// Share transfers are blocked because a funding round is active (#38).
+    FundingRoundActive = 41,
     /// Funding would push cumulative investment in a project above its per-project cap (#32).
     InvestmentCapExceeded = 41,
 }
@@ -160,6 +162,16 @@ pub enum VaultKey {
     /// Minimum ledger gap between a deposit and a withdrawal (#36).
     /// Default is 1 (blocks same-ledger exit). Set via set_withdrawal_window.
     WithdrawalWindowLedgers,
+    /// Minimum deposit amount (in USDC stroops) at which a volume-discount fee
+    /// rate applies instead of the flat ManagementFeeBps rate (#39).
+    VolumeTierThreshold,
+    /// Discounted management fee in basis points applied when a deposit meets
+    /// or exceeds VolumeTierThreshold (#39). Must be <= ManagementFeeBps.
+    VolumeTierFeeBps,
+    /// Whether a funding round is currently active (#38).
+    /// Share transfers are blocked while this flag is set to prevent
+    /// vault-accounting manipulation during active project funding.
+    FundingRoundActive,
     /// Admin-configurable maximum USDC investment per project (#32).
     /// Defaults to MAX_INVESTMENT_PER_PROJECT when not set.
     MaxInvestmentPerProject,
