@@ -504,4 +504,12 @@ pub struct WithdrawalWindowSet {
 
 pub fn withdrawal_window_set(env: &Env, ledgers: u32) {
     WithdrawalWindowSet { ledgers }.publish(env);
+/// Emitted when the admin changes the per-project investment cap (#32).
+#[contractevent]
+pub struct InvestmentCapSet {
+    pub cap: i128,
+}
+
+pub fn investment_cap_set(env: &Env, cap: i128) {
+    InvestmentCapSet { cap }.publish(env);
 }
