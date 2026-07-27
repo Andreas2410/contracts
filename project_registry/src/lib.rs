@@ -22,6 +22,10 @@ const MAX_DISCOUNT_BPS: u32 = 500;
 const MAX_MULTISIG_SIGNERS: u32 = 10;
 const MAX_SCORE_HISTORY: u32 = 50;
 
+/// Maximum number of (project_id, score) pairs in a single batch update call (#31).
+/// Prevents excessively large transactions that could exceed ledger resource limits.
+const MAX_BATCH_SCORE_SIZE: u32 = 20;
+
 mod events;
 mod logic;
 mod storage;
@@ -381,6 +385,29 @@ impl ProjectRegistry {
         require_not_paused(&env);
         require_admin_approval(&env, approvals);
         update_impact_score_internal(env, project_id, credit_quality, green_impact);
+    }
+
+    /// Update impact scores for multiple projects in a single transaction. Admin-only (#31).
+    ///
+    /// Each entry in `updates` is `(project_id, credit_quality, green_impact)`.
+    /// Both score values must be in the range 0–100. The batch is rejected as a whole
+    /// if it exceeds `MAX_BATCH_SCORE_SIZE` (20 entries), preventing transactions that
+    /// would exceed Soroban ledger resource limits.
+    ///
+    /// Individual project entries that are no-ops (scores identical to current values)
+    /// are silently skipped, consistent with `update_impact_score`. Emits `ProjectUpdated`,
+    /// `RateUpdated`, and `ScoreChanged` for each project whose scores actually change.
+    #[only_owner]
+    pub fn update_impact_scores_batch(env: Env, updates: Vec<(u32, u32, u32)>) {
+        require_not_paused(&env);
+        require_multisig_disabled(&env);
+        if updates.len() > MAX_BATCH_SCORE_SIZE {
+            panic_with_error!(&env, RegistryError::BatchTooLarge);
+        }
+        for entry in updates.iter() {
+            let (project_id, credit_quality, green_impact) = entry;
+            update_impact_score_internal(env.clone(), project_id, credit_quality, green_impact);
+        }
     }
 
     /// Set the certification status of a project (whitelister or owner only) (#130).

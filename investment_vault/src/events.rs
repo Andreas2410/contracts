@@ -495,3 +495,27 @@ pub fn ownership_transferred(env: &Env, old_owner: &Address, new_owner: &Address
     }
     .publish(env);
 }
+
+/// Emitted when the admin opens a funding round (#38).
+#[contractevent]
+pub struct FundingRoundStarted {}
+
+pub fn funding_round_started(env: &Env) {
+    FundingRoundStarted {}.publish(env);
+}
+
+/// Emitted when the admin closes a funding round (#38).
+#[contractevent]
+pub struct FundingRoundEnded {}
+
+pub fn funding_round_ended(env: &Env) {
+    FundingRoundEnded {}.publish(env);
+/// Emitted when the admin changes the per-project investment cap (#32).
+#[contractevent]
+pub struct InvestmentCapSet {
+    pub cap: i128,
+}
+
+pub fn investment_cap_set(env: &Env, cap: i128) {
+    InvestmentCapSet { cap }.publish(env);
+}

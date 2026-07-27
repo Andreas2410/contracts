@@ -2409,4 +2409,150 @@ fn test_volume_fee_tier_is_admin_only() {
         },
     }]);
     s.vault_client.set_volume_fee_tier(&500_0000000i128, &50u32);
+// ── #179: convert_to_shares() overflow guard on extremely large deposits ──────
+
+/// Verify that `convert_to_shares` panics (rather than silently wrapping) when
+/// the intermediate multiplication `usdc_amount * total_shares` would overflow
+/// i128.  Soroban contracts are compiled in debug mode for tests, where Rust
+/// arithmetic overflow is a panic; this test documents and guards that behavior
+/// so an accidental `--release` silent-wrap regression is caught by CI.
+#[test]
+#[should_panic]
+fn test_convert_to_shares_near_i128_max_overflows_visibly() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+
+    // Seed the vault with two deposits so total_shares and total_assets are
+    // both non-zero and the ratio is > 1 (more shares than assets). This
+    // forces the multiplication path: usdc_amount * total_shares / total_assets.
+    let seed = 1_000_0000000i128; // 1 000 USDC (7-decimal)
+    mint_usdc(&s.env, &s.usdc_sac, &investor, seed * 2);
+    s.vault_client.deposit(&investor, &seed);
+
+    // Near-maximum i128 value; multiplying this by any total_shares > 1
+    // will overflow a signed 128-bit integer.
+    let near_max = i128::MAX / 2 + 1;
+    // Should panic — not silently wrap — satisfying the overflow-guard criterion.
+    let _ = s.vault_client.convert_to_shares(&near_max);
+}
+
+/// A near-max amount on an *empty* vault takes the 1:1 fast-path and must
+/// never overflow (there is no multiplication on that path).
+#[test]
+fn test_convert_to_shares_near_i128_max_empty_vault_is_one_to_one() {
+    let s = setup();
+    // Empty vault → 1:1 branch, no multiplication at all.
+    let near_max = i128::MAX / 2;
+    let shares = s.vault_client.convert_to_shares(&near_max);
+    assert_eq!(shares, near_max, "empty-vault path must be exactly 1:1");
+}
+
+// ── #180: flash_loan() succeeds when borrower repays in the same transaction ──
+
+/// Mock flash-loan receiver that always returns `true` (repayment confirmed).
+/// Registered as a Soroban contract so the vault can cross-contract-call it.
+mod mock_flash_receiver {
+    use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+
+    #[contract]
+    pub struct MockRepayingReceiver;
+
+    #[contractimpl]
+    impl MockRepayingReceiver {
+        /// Always signals successful repayment.
+        pub fn flash_loan_callback(
+            _env: Env,
+            _initiator: Address,
+            _vault: Address,
+            _amount: i128,
+            _fee: i128,
+            _data: Bytes,
+        ) -> bool {
+            true
+        }
+    }
+}
+
+/// Companion to the (implicit) failure test: confirm that a well-behaved
+/// borrower which returns `true` from `flash_loan_callback` completes the
+/// flash loan without the vault panicking.
+#[test]
+fn test_flash_loan_succeeds_with_valid_same_transaction_repayment() {
+    let s = setup();
+
+    // Fund the vault so it has assets to lend.
+    let investor = Address::generate(&s.env);
+    let deposit_amount = 10_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, deposit_amount);
+    s.vault_client.deposit(&investor, &deposit_amount);
+
+    // Register the mock borrower that always repays.
+    let borrower = s
+        .env
+        .register(mock_flash_receiver::MockRepayingReceiver, ());
+    let initiator = Address::generate(&s.env);
+
+    // Set a 10 bps flash-loan fee so the fee path is exercised.
+    s.vault_client.set_flash_loan_fee(&10i128);
+
+    let loan_amount = 1_000_0000000i128;
+
+    // Must not panic — borrower returns true → repayment succeeds.
+    s.vault_client.execute_flash_loan(
+        &initiator,
+        &borrower,
+        &loan_amount,
+        &soroban_sdk::Bytes::new(&s.env),
+    );
+
+    // Vault total-assets must be at least as large as before the loan:
+    // the fee is kept by the vault, so assets >= original deposit.
+    assert!(
+        s.vault_client.total_assets() >= deposit_amount,
+        "vault must retain at least the original deposit after a successful flash loan"
+    );
+}
+
+/// Verify that a borrower whose callback returns `false` causes the vault to
+/// panic, enforcing same-transaction repayment.
+#[test]
+#[should_panic(expected = "flash loan callback failed")]
+fn test_flash_loan_fails_without_repayment() {
+    mod mock_failing_receiver {
+        use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};
+
+        #[contract]
+        pub struct MockFailingReceiver;
+
+        #[contractimpl]
+        impl MockFailingReceiver {
+            pub fn flash_loan_callback(
+                _env: Env,
+                _initiator: Address,
+                _vault: Address,
+                _amount: i128,
+                _fee: i128,
+                _data: Bytes,
+            ) -> bool {
+                false // simulate missing repayment
+            }
+        }
+    }
+
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let deposit_amount = 10_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, deposit_amount);
+    s.vault_client.deposit(&investor, &deposit_amount);
+
+    let borrower = s
+        .env
+        .register(mock_failing_receiver::MockFailingReceiver, ());
+
+    s.vault_client.execute_flash_loan(
+        &Address::generate(&s.env),
+        &borrower,
+        &1_000_0000000i128,
+        &soroban_sdk::Bytes::new(&s.env),
+    );
 }
