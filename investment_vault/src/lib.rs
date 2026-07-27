@@ -388,13 +388,26 @@ impl InvestmentVault {
         // Deduct insurance premium before share calculation (#135)
         let premium = usdc_amount * INSURANCE_PREMIUM_BPS / 10_000;
 
-        // Deduct optional management fee (#7)
+        // Deduct optional management fee (#7).
+        // Applies a dynamic (volume-tiered) rate when one is configured (#39):
+        // deposits >= VolumeTierThreshold use VolumeTierFeeBps; others use the
+        // flat ManagementFeeBps rate.
         let fee_bps: u32 = env
             .storage()
             .instance()
             .get(&VaultKey::ManagementFeeBps)
             .unwrap_or(0);
-        let fee_amount = usdc_amount * (fee_bps as i128) / 10_000;
+        let volume_threshold: Option<i128> =
+            env.storage().instance().get(&VaultKey::VolumeTierThreshold);
+        let volume_tier_bps: Option<u32> =
+            env.storage().instance().get(&VaultKey::VolumeTierFeeBps);
+        let effective_fee_bps = logic::logic::calculate_dynamic_fee_bps(
+            usdc_amount,
+            fee_bps,
+            volume_threshold,
+            volume_tier_bps,
+        );
+        let fee_amount = usdc_amount * (effective_fee_bps as i128) / 10_000;
 
         let investable = usdc_amount - premium - fee_amount;
 
@@ -1041,6 +1054,58 @@ impl InvestmentVault {
             .unwrap_or(0)
     }
 
+    // ── Dynamic fee structure (#39) ───────────────────────────────────────────
+
+    /// Configure a two-tier volume-discount fee schedule for deposits (#39).
+    ///
+    /// When a deposit amount meets or exceeds `threshold`, the effective management
+    /// fee rate is `discounted_bps` instead of the flat `ManagementFeeBps`. Pass
+    /// `threshold = 0` to disable the tier (reverts to flat rate for all deposits).
+    ///
+    /// Constraints:
+    /// - `discounted_bps` must not exceed the current `ManagementFeeBps` (discounts only).
+    /// - `discounted_bps` must not exceed `MAX_MANAGEMENT_FEE_BPS`.
+    ///
+    /// Admin-only.
+    #[only_owner]
+    pub fn set_volume_fee_tier(env: Env, threshold: i128, discounted_bps: u32) {
+        require_current_state(&env);
+        if discounted_bps > MAX_MANAGEMENT_FEE_BPS {
+            panic_with_error!(&env, VaultError::FeeExceedsMaximum);
+        }
+        if threshold == 0 {
+            // Disable the tier entirely.
+            env.storage()
+                .instance()
+                .remove(&VaultKey::VolumeTierThreshold);
+            env.storage()
+                .instance()
+                .remove(&VaultKey::VolumeTierFeeBps);
+            return;
+        }
+        env.storage()
+            .instance()
+            .set(&VaultKey::VolumeTierThreshold, &threshold);
+        env.storage()
+            .instance()
+            .set(&VaultKey::VolumeTierFeeBps, &discounted_bps);
+    }
+
+    /// Return the configured volume-discount tier as `(threshold, discounted_bps)`.
+    /// Returns `(0, 0)` when no tier is active.
+    pub fn get_volume_fee_tier(env: Env) -> (i128, u32) {
+        require_current_state(&env);
+        let threshold: i128 = env
+            .storage()
+            .instance()
+            .get(&VaultKey::VolumeTierThreshold)
+            .unwrap_or(0);
+        let bps: u32 = env
+            .storage()
+            .instance()
+            .get(&VaultKey::VolumeTierFeeBps)
+            .unwrap_or(0);
+        (threshold, bps)
     // ── Per-project investment cap (#32) ──────────────────────────────────────
 
     /// Set the maximum total USDC the vault may invest in any single project. Admin-only.

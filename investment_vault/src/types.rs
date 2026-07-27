@@ -157,6 +157,12 @@ pub enum VaultKey {
     /// Optional emergency-admin address that may pause/unpause without
     /// holding full owner privileges (#43). Unset means no emergency admin.
     EmergencyAdmin,
+    /// Minimum deposit amount (in USDC stroops) at which a volume-discount fee
+    /// rate applies instead of the flat ManagementFeeBps rate (#39).
+    VolumeTierThreshold,
+    /// Discounted management fee in basis points applied when a deposit meets
+    /// or exceeds VolumeTierThreshold (#39). Must be <= ManagementFeeBps.
+    VolumeTierFeeBps,
     /// Whether a funding round is currently active (#38).
     /// Share transfers are blocked while this flag is set to prevent
     /// vault-accounting manipulation during active project funding.
