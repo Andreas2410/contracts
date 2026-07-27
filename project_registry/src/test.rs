@@ -811,6 +811,86 @@ fn test_interest_rate_mid_scores() {
     assert_eq!(client.get_interest_rate(&id), 650u32);
 }
 
+#[test]
+fn test_interest_rate_boundary_combined_score_50() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.update_impact_score(&id, &50u32, &50u32);
+    // avg = (50 + 50) / 2 = 50, discount = 50 * 500 / 100 = 250 → rate = 1000 - 250 = 750 bps
+    assert_eq!(client.get_interest_rate(&id), 750u32);
+}
+
+#[test]
+fn test_interest_rate_boundary_combined_score_1() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.update_impact_score(&id, &1u32, &1u32);
+    // avg = (1 + 1) / 2 = 1, discount = 1 * 500 / 100 = 5 → rate = 1000 - 5 = 995 bps
+    assert_eq!(client.get_interest_rate(&id), 995u32);
+}
+
+#[test]
+fn test_interest_rate_boundary_combined_score_99() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.update_impact_score(&id, &99u32, &99u32);
+    // avg = (99 + 99) / 2 = 99, discount = 99 * 500 / 100 = 495 → rate = 1000 - 495 = 505 bps
+    assert_eq!(client.get_interest_rate(&id), 505u32);
+}
+
+#[test]
+fn test_interest_rate_boundary_asymmetric_0_100() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.update_impact_score(&id, &0u32, &100u32);
+    // avg = (0 + 100) / 2 = 50, discount = 50 * 500 / 100 = 250 → rate = 1000 - 250 = 750 bps
+    assert_eq!(client.get_interest_rate(&id), 750u32);
+}
+
+#[test]
+fn test_interest_rate_boundary_asymmetric_100_0() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.update_impact_score(&id, &100u32, &0u32);
+    // avg = (100 + 0) / 2 = 50, discount = 50 * 500 / 100 = 250 → rate = 1000 - 250 = 750 bps
+    assert_eq!(client.get_interest_rate(&id), 750u32);
+}
+
 // ── Issue #55: event emission verification tests ──────────────────────────────
 
 #[test]
