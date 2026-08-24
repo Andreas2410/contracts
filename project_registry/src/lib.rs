@@ -234,6 +234,10 @@ impl ProjectRegistry {
             .get(&DataKey::Project(project_id))
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
+        if project.status == types::ProjectStatus::Archived {
+            panic_with_error!(&env, RegistryError::ProjectArchived);
+        }
+
         project.status = types::ProjectStatus::Archived;
         env.storage()
             .persistent()
@@ -286,6 +290,7 @@ impl ProjectRegistry {
             final_green_impact: project.green_impact,
             maturity_date: project.maturity_date,
             certification_status: project.certification_status,
+            metadata_hash: project.metadata_hash,
         };
         env.storage()
             .persistent()
@@ -321,12 +326,21 @@ impl ProjectRegistry {
     /// trustless proof the content matches what the creator committed to.
     pub fn verify_metadata_hash(env: Env, project_id: u32, candidate_hash: BytesN<32>) -> bool {
         require_current_state(&env);
-        let project: ProjectData = env
+        if let Some(project) = env
             .storage()
             .persistent()
-            .get(&DataKey::Project(project_id))
+            .get::<DataKey, ProjectData>(&DataKey::Project(project_id))
+        {
+            return project.metadata_hash == candidate_hash;
+        }
+        // Project may have been compacted (#73) — fall back to the archive summary,
+        // which preserves metadata_hash precisely so this check keeps working (#448).
+        let summary: ArchiveSummary = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arch(project_id))
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
-        project.metadata_hash == candidate_hash
+        summary.metadata_hash == candidate_hash
     }
 
     /// Return the current project counter (equals the highest assigned project ID).
@@ -1095,39 +1109,6 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
         new_rate,
     );
     append_score_history(&env, project_id, credit_quality, green_impact);
-}
-
-#[allow(dead_code)]
-fn update_credit_quality_score_internal(env: Env, project_id: u32, credit_quality: u32) {
-    if credit_quality > 100 {
-        panic_with_error!(&env, RegistryError::CreditQualityOutOfRange);
-    }
-    let mut project: ProjectData = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Project(project_id))
-        .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
-    let old_cq = project.credit_quality;
-    if old_cq == credit_quality {
-        return;
-    }
-    let old_rate = compute_rate(project.credit_quality, project.green_impact);
-    project.credit_quality = credit_quality;
-    let new_rate = compute_rate(credit_quality, project.green_impact);
-    env.storage()
-        .persistent()
-        .set(&DataKey::Project(project_id), &project);
-    events::credit_quality_updated(&env, project_id, credit_quality);
-    events::score_changed(
-        &env,
-        project_id,
-        old_cq,
-        credit_quality,
-        project.green_impact,
-        project.green_impact,
-        old_rate,
-        new_rate,
-    );
 }
 
 fn liquidate_collateral_internal(env: Env, project_id: u32, token: Address, recipient: Address) {

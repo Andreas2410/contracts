@@ -25,9 +25,11 @@
 //! # Cross-chain bridge readiness (#48)
 //!
 //! The [`BridgeInterface`] trait defines a chain-agnostic bridge API that can be
-//! implemented on Stellar, EVM, Solana, or any other blockchain. The contract
-//! implements this trait internally; off-chain indexers and relayers SHOULD
-//! rely on the standardised events and types defined here rather than
+//! implemented on Stellar, EVM, Solana, or any other blockchain. It is a design
+//! reference only — `InvestmentVault` does not implement it (its real entry
+//! points, `set_wormhole_core`/`initiate_bridge_transfer`/`complete_bridge_transfer`,
+//! use different names and parameter shapes); off-chain indexers and relayers
+//! SHOULD rely on the standardised events and types defined here rather than
 //! chain-specific formats.
 //!
 //! # Trust assumptions (#267)
