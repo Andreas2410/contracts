@@ -7,6 +7,13 @@ import {
   ServiceConfig,
 } from "./types";
 
+const sendMailMock = vi.fn(async () => ({ messageId: "test" }));
+vi.mock("nodemailer", () => ({
+  default: {
+    createTransport: vi.fn(() => ({ sendMail: sendMailMock })),
+  },
+}));
+
 const config: ServiceConfig = {
   rpc_url: "https://example.invalid",
   network_passphrase: "Test SDF Network ; September 2015",
@@ -15,6 +22,17 @@ const config: ServiceConfig = {
   db_path: ":memory:",
   poll_interval_ms: 1000,
   api_port: 3000,
+};
+
+const configWithEmail: ServiceConfig = {
+  ...config,
+  from_email: "noreply@heliobond.io",
+  email_transport: {
+    host: "smtp.example.invalid",
+    port: 587,
+    secure: false,
+    auth: { user: "user", pass: "pass" },
+  },
 };
 
 const preference: NotificationPreference = {
@@ -193,6 +211,72 @@ describe("Notifier retry behavior on a failed delivery", () => {
     await notifier.notifyInvestors(event, [preference.investor_address]);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.recordNotification).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Issue #426: the email channel had zero test coverage ───────────────────
+
+describe("Notifier email channel", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    sendMailMock.mockClear();
+    sendMailMock.mockImplementation(async () => ({ messageId: "test" }));
+    fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("sends an email via the configured transport when the investor has an email preference", async () => {
+    const withEmail: NotificationPreference = {
+      ...preference,
+      webhook_url: undefined,
+      email: "investor@example.invalid",
+    };
+    const store = {
+      getPreference: vi.fn(() => withEmail),
+      recordNotification: vi.fn(),
+    } as unknown as Store;
+
+    const notifier = new Notifier(configWithEmail, store);
+    const event = makeEvent();
+
+    await notifier.notifyInvestors(event, [withEmail.investor_address]);
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(sendMailMock).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "investor@example.invalid" }),
+    );
+    expect(store.recordNotification).toHaveBeenCalledWith(
+      withEmail.investor_address,
+      event.project_id,
+      "email",
+      event.ledger,
+    );
+  });
+
+  it("retries a redelivered event by email after the first send fails", async () => {
+    const withEmail: NotificationPreference = {
+      ...preference,
+      webhook_url: undefined,
+      email: "investor@example.invalid",
+    };
+    const store = {
+      getPreference: vi.fn(() => withEmail),
+      recordNotification: vi.fn(),
+    } as unknown as Store;
+
+    sendMailMock
+      .mockRejectedValueOnce(new Error("smtp connection refused"))
+      .mockImplementationOnce(async () => ({ messageId: "test" }));
+
+    const notifier = new Notifier(configWithEmail, store);
+    const event = makeEvent();
+
+    await notifier.notifyInvestors(event, [withEmail.investor_address]);
+    await notifier.notifyInvestors(event, [withEmail.investor_address]);
+
+    expect(sendMailMock).toHaveBeenCalledTimes(2);
     expect(store.recordNotification).toHaveBeenCalledTimes(1);
   });
 });
