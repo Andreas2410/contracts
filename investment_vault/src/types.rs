@@ -103,6 +103,9 @@ pub enum VaultError {
     BridgeWrongTargetChain = 46,
     /// batch_fund_projects received an empty fundings list (#445).
     EmptyBatchFunding = 47,
+    /// A batch deposit or fund-projects request exceeds the configured maximum
+    /// batch size (#447).
+    BatchTooLarge = 48,
 }
 
 #[contracttype]
