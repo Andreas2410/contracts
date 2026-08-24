@@ -1379,6 +1379,14 @@ impl InvestmentVault {
         if !trusted {
             panic!("emitter not trusted");
         }
+        // The payload's token_address is decoded and is now checked (#453) rather
+        // than silently ignored — otherwise a VAA about a different asset would
+        // be accepted and minted as HBS anyway if the emitter is ever reused for
+        // a multi-asset bridge.
+        if transfer.token_address != wormhole::address_to_bytes32(&env, &env.current_contract_address())
+        {
+            panic_with_error!(&env, VaultError::BridgeTokenMismatch);
+        }
         let digest: BytesN<32> = env.crypto().sha256(&vaa).into();
         if env
             .storage()
