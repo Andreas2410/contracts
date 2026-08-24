@@ -150,6 +150,13 @@ const HIGH_TIER_PCT: i128 = 10; // 10% of liquid at ≥ 90% utilization
 const MED_TIER_PCT: i128 = 25; // 25% of liquid at ≥ 70% utilization
 const LOW_TIER_PCT: i128 = 50; // 50% of liquid at ≥ 50% utilization
 
+/// Max entries accepted by `batch_deposit` in a single call, to prevent excessively
+/// large transactions that could exceed Soroban ledger resource limits (#447).
+const MAX_BATCH_DEPOSIT_SIZE: u32 = 20;
+/// Max entries accepted by `batch_fund_projects` in a single call, for the same
+/// reason as `MAX_BATCH_DEPOSIT_SIZE` (#447).
+const MAX_BATCH_FUND_SIZE: u32 = 20;
+
 pub const CONTRACT_NAME: &str = "Investment Vault";
 pub const CONTRACT_DESCRIPTION: &str = "Heliobond Investment Vault";
 pub const CONTRACT_VERSION: &str = "1.0.0";
@@ -256,7 +263,19 @@ impl InvestmentVault {
     /// Fund multiple projects in a single batch transaction with multi-sig approvals (#184, #188).
     ///
     /// Rejects batch requests containing duplicate project IDs to prevent double-funding.
+    /// Panics with `EmptyBatchFunding` if `fundings` is empty (#445) — a no-op batch
+    /// is almost certainly a caller bug and should not pay `require_admin_approval`'s
+    /// cost for nothing.
+    /// Panics with `BatchTooLarge` if `fundings` exceeds `MAX_BATCH_FUND_SIZE`
+    /// (20 entries), preventing transactions that could exceed Soroban ledger
+    /// resource limits (#447).
     pub fn batch_fund_projects(env: Env, fundings: Vec<(u32, i128)>, approvals: Vec<Address>) {
+        if fundings.is_empty() {
+            panic_with_error!(&env, VaultError::EmptyBatchFunding);
+        }
+        if fundings.len() > MAX_BATCH_FUND_SIZE {
+            panic_with_error!(&env, VaultError::BatchTooLarge);
+        }
         require_admin_approval(&env, approvals);
         let mut seen = Vec::new(&env);
         for funding in fundings.iter() {
@@ -477,9 +496,15 @@ impl InvestmentVault {
     ///
     /// Panics with `EmptyBatchDeposit` if `deposits` is empty (#178) — a no-op
     /// batch is almost certainly a caller bug and should not silently succeed.
+    /// Panics with `BatchTooLarge` if `deposits` exceeds `MAX_BATCH_DEPOSIT_SIZE`
+    /// (20 entries), preventing transactions that could exceed Soroban ledger
+    /// resource limits (#447).
     pub fn batch_deposit(env: Env, deposits: Vec<(Address, i128)>) -> Vec<i128> {
         if deposits.is_empty() {
             panic_with_error!(&env, VaultError::EmptyBatchDeposit);
+        }
+        if deposits.len() > MAX_BATCH_DEPOSIT_SIZE {
+            panic_with_error!(&env, VaultError::BatchTooLarge);
         }
         let mut minted = Vec::new(&env);
         for deposit in deposits.iter() {

@@ -407,9 +407,11 @@ impl ProjectRegistry {
     /// Update impact scores for multiple projects in a single transaction. Admin-only (#31).
     ///
     /// Each entry in `updates` is `(project_id, credit_quality, green_impact)`.
-    /// Both score values must be in the range 0–100. The batch is rejected as a whole
-    /// if it exceeds `MAX_BATCH_SCORE_SIZE` (20 entries), preventing transactions that
-    /// would exceed Soroban ledger resource limits.
+    /// Both score values must be in the range 0–100. Panics with `EmptyBatchUpdate`
+    /// if `updates` is empty (#445) — a no-op batch is almost certainly a caller bug.
+    /// The batch is rejected as a whole if it exceeds `MAX_BATCH_SCORE_SIZE` (20
+    /// entries), preventing transactions that would exceed Soroban ledger resource
+    /// limits.
     ///
     /// Individual project entries that are no-ops (scores identical to current values)
     /// are silently skipped, consistent with `update_impact_score`. Emits `ProjectUpdated`,
@@ -418,6 +420,9 @@ impl ProjectRegistry {
     pub fn update_impact_scores_batch(env: Env, updates: Vec<(u32, u32, u32)>) {
         require_not_paused(&env);
         require_multisig_disabled(&env);
+        if updates.is_empty() {
+            panic_with_error!(&env, RegistryError::EmptyBatchUpdate);
+        }
         if updates.len() > MAX_BATCH_SCORE_SIZE {
             panic_with_error!(&env, RegistryError::BatchTooLarge);
         }
