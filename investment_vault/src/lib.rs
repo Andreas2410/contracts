@@ -384,6 +384,7 @@ impl InvestmentVault {
         if usdc_amount > MAX_DEPOSIT {
             panic_with_error!(&env, VaultError::DepositExceedsMaximum);
         }
+        check_max_transaction_amount(&env, usdc_amount);
 
         // Deduct insurance premium before share calculation (#135)
         let premium = usdc_amount * INSURANCE_PREMIUM_BPS / 10_000;
@@ -550,6 +551,7 @@ impl InvestmentVault {
         }
 
         let usdc_returned = Self::convert_to_assets(env.clone(), shares_amount);
+        check_max_transaction_amount(&env, usdc_returned);
 
         let usdc_sac: Address = env.storage().instance().get(&VaultKey::UsdcSac).unwrap();
         let liquid = soroban_sdk::token::TokenClient::new(&env, &usdc_sac)
@@ -1268,6 +1270,9 @@ impl InvestmentVault {
         if amount <= 0 {
             panic!("amount must be positive");
         }
+        if Base::total_supply(&env) + amount > MAX_HBS_SUPPLY {
+            panic_with_error!(&env, VaultError::MaxSupplyExceeded);
+        }
         Base::mint(&env, &to, amount);
         lock_deposit(&env, &to);
         events::bridge_mint(&env, &to, amount);
@@ -1385,6 +1390,9 @@ impl InvestmentVault {
             .set(&BridgeDataKey::ConsumedVaa(digest), &true);
 
         let to = wormhole::bytes32_to_address(&env, &transfer.recipient);
+        if Base::total_supply(&env) + transfer.amount > MAX_HBS_SUPPLY {
+            panic_with_error!(&env, VaultError::MaxSupplyExceeded);
+        }
         Base::mint(&env, &to, transfer.amount);
         lock_deposit(&env, &to);
         events::bridge_transfer_completed(
@@ -1472,6 +1480,9 @@ impl InvestmentVault {
 
         let vault = env.current_contract_address();
 
+        if Base::total_supply(&env) + amount + fee > MAX_HBS_SUPPLY {
+            panic_with_error!(&env, VaultError::MaxSupplyExceeded);
+        }
         Base::mint(&env, &borrower, amount + fee);
 
         let client = FlashLoanReceiverClient::new(&env, &borrower);
@@ -1505,6 +1516,12 @@ impl InvestmentVault {
     }
 
     /// Set the price per carbon credit (carbon oracle only) (#184).
+    ///
+    /// Informational/reserved only (issue #456): this value is not read by
+    /// `calculate_carbon_credits`/`issue_carbon_credits` — credit amounts are
+    /// computed purely from `project.green_impact`. It is stored and surfaced
+    /// via `export_regulatory_data` for off-chain/future use, not as an
+    /// on-chain input to credit issuance.
     pub fn set_carbon_credit_price(env: Env, price: i128) {
         require_current_state(&env);
         let oracle: Address = env
@@ -1794,6 +1811,7 @@ fn fund_project_internal(env: Env, project_id: u32, amount: i128) {
     if project_id == 0 {
         panic_with_error!(&env, VaultError::ProjectNotFound);
     }
+    check_max_transaction_amount(&env, amount);
 
     let registry_addr: Address = env.storage().instance().get(&VaultKey::Registry).unwrap();
     let registry = registry_interface::Client::new(&env, &registry_addr);
@@ -1940,6 +1958,7 @@ fn claim_insurance_internal(env: Env, project_id: u32, recipient: Address, amoun
     if amount <= 0 {
         panic_with_error!(&env, VaultError::ClaimAmountNotPositive);
     }
+    check_max_transaction_amount(&env, amount);
     let already_claimed: bool = env
         .storage()
         .persistent()
@@ -1974,18 +1993,19 @@ fn claim_insurance_internal(env: Env, project_id: u32, recipient: Address, amoun
     events::insurance_claimed(&env, project_id, &recipient, amount);
 }
 
+/// Thin wrapper around the shared `multisig` crate (#459) mapping its
+/// generic errors onto this contract's own `VaultError` codes.
 fn validate_multisig_config(env: &Env, signers: &Vec<Address>, threshold: u32) {
-    if signers.len() > MAX_MULTISIG_SIGNERS {
-        panic_with_error!(env, VaultError::TooManyMultiSigSigners);
-    }
-    if threshold == 0 || threshold > signers.len() {
-        panic_with_error!(env, VaultError::InvalidMultiSigThreshold);
-    }
-    for i in 0..signers.len() {
-        let signer = signers.get(i).unwrap();
-        for j in (i + 1)..signers.len() {
-            if signer == signers.get(j).unwrap() {
-                panic_with_error!(env, VaultError::DuplicateApproval);
+    if let Err(e) = multisig::validate_multisig_config(signers, threshold, MAX_MULTISIG_SIGNERS) {
+        match e {
+            multisig::ConfigError::TooManySigners => {
+                panic_with_error!(env, VaultError::TooManyMultiSigSigners)
+            }
+            multisig::ConfigError::InvalidThreshold => {
+                panic_with_error!(env, VaultError::InvalidMultiSigThreshold)
+            }
+            multisig::ConfigError::DuplicateSigner => {
+                panic_with_error!(env, VaultError::DuplicateApproval)
             }
         }
     }
@@ -1997,47 +2017,27 @@ fn require_admin_approval(env: &Env, approvals: Vec<Address>) {
         .instance()
         .get(&VaultKey::MultiSigThreshold)
         .unwrap_or(0);
-    if threshold == 0 {
-        stellar_access::ownable::get_owner(env)
-            .unwrap()
-            .require_auth();
-        return;
-    }
-
     let signers: Vec<Address> = env
         .storage()
         .instance()
         .get(&VaultKey::MultiSigSigners)
         .unwrap_or_else(|| Vec::new(env));
-    if threshold > signers.len() {
-        panic_with_error!(env, VaultError::InvalidMultiSigThreshold);
-    }
-
-    let mut approved = 0u32;
-    for i in 0..approvals.len() {
-        let approver = approvals.get(i).unwrap();
-        for j in 0..i {
-            if approver == approvals.get(j).unwrap() {
-                panic_with_error!(env, VaultError::DuplicateApproval);
+    let owner = stellar_access::ownable::get_owner(env).unwrap();
+    if let Err(e) = multisig::require_admin_approval(&owner, threshold, &signers, approvals) {
+        match e {
+            multisig::ApprovalError::InvalidThreshold => {
+                panic_with_error!(env, VaultError::InvalidMultiSigThreshold)
+            }
+            multisig::ApprovalError::DuplicateApproval => {
+                panic_with_error!(env, VaultError::DuplicateApproval)
+            }
+            multisig::ApprovalError::NotSigner => {
+                panic_with_error!(env, VaultError::NotMultiSigSigner)
+            }
+            multisig::ApprovalError::InsufficientApprovals => {
+                panic_with_error!(env, VaultError::InsufficientApprovals)
             }
         }
-
-        let mut is_signer = false;
-        for signer in signers.iter() {
-            if approver == signer {
-                is_signer = true;
-                break;
-            }
-        }
-        if !is_signer {
-            panic_with_error!(env, VaultError::NotMultiSigSigner);
-        }
-        approver.require_auth();
-        approved += 1;
-    }
-
-    if approved < threshold {
-        panic_with_error!(env, VaultError::InsufficientApprovals);
     }
 }
 
@@ -2047,7 +2047,7 @@ fn require_multisig_disabled(env: &Env) {
         .instance()
         .get(&VaultKey::MultiSigThreshold)
         .unwrap_or(0);
-    if threshold > 0 {
+    if !multisig::is_multisig_disabled(threshold) {
         panic_with_error!(env, VaultError::InsufficientApprovals);
     }
 }
@@ -2062,6 +2062,20 @@ fn read_state_version(env: &Env) -> u32 {
 fn require_current_state(env: &Env) {
     if read_state_version(env) != STATE_VERSION {
         panic_with_error!(env, VaultError::UnsupportedStateVersion);
+    }
+}
+
+/// Enforce the configured compliance transaction limit, if any (#457).
+/// `0` (the default) means "no limit configured" — matches the documented
+/// convention for `MaxTransactionAmount`.
+fn check_max_transaction_amount(env: &Env, amount: i128) {
+    let max: i128 = env
+        .storage()
+        .instance()
+        .get(&VaultKey::MaxTransactionAmount)
+        .unwrap_or(0);
+    if max > 0 && amount > max {
+        panic_with_error!(env, VaultError::ExceedsMaxTransactionAmount);
     }
 }
 
