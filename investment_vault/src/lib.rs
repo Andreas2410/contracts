@@ -1270,6 +1270,9 @@ impl InvestmentVault {
         if amount <= 0 {
             panic!("amount must be positive");
         }
+        if Base::total_supply(&env) + amount > MAX_HBS_SUPPLY {
+            panic_with_error!(&env, VaultError::MaxSupplyExceeded);
+        }
         Base::mint(&env, &to, amount);
         lock_deposit(&env, &to);
         events::bridge_mint(&env, &to, amount);
@@ -1387,6 +1390,9 @@ impl InvestmentVault {
             .set(&BridgeDataKey::ConsumedVaa(digest), &true);
 
         let to = wormhole::bytes32_to_address(&env, &transfer.recipient);
+        if Base::total_supply(&env) + transfer.amount > MAX_HBS_SUPPLY {
+            panic_with_error!(&env, VaultError::MaxSupplyExceeded);
+        }
         Base::mint(&env, &to, transfer.amount);
         lock_deposit(&env, &to);
         events::bridge_transfer_completed(
@@ -1474,6 +1480,9 @@ impl InvestmentVault {
 
         let vault = env.current_contract_address();
 
+        if Base::total_supply(&env) + amount + fee > MAX_HBS_SUPPLY {
+            panic_with_error!(&env, VaultError::MaxSupplyExceeded);
+        }
         Base::mint(&env, &borrower, amount + fee);
 
         let client = FlashLoanReceiverClient::new(&env, &borrower);
