@@ -1505,6 +1505,12 @@ impl InvestmentVault {
     }
 
     /// Set the price per carbon credit (carbon oracle only) (#184).
+    ///
+    /// Informational/reserved only (issue #456): this value is not read by
+    /// `calculate_carbon_credits`/`issue_carbon_credits` — credit amounts are
+    /// computed purely from `project.green_impact`. It is stored and surfaced
+    /// via `export_regulatory_data` for off-chain/future use, not as an
+    /// on-chain input to credit issuance.
     pub fn set_carbon_credit_price(env: Env, price: i128) {
         require_current_state(&env);
         let oracle: Address = env
