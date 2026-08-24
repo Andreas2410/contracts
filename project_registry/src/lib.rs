@@ -12,6 +12,9 @@ use stellar_macros::only_owner;
 const MAX_URI_LEN: u32 = 512;
 /// Minimum URI length — must contain at least a scheme and one character (#117).
 const MIN_URI_LEN: u32 = 8;
+/// Maximum governance proposal description length in bytes, mirroring the
+/// URI-length bound above — prevents excessively large ledger entries (#455).
+const MAX_PROPOSAL_DESCRIPTION_LEN: u32 = 2048;
 /// Current schema version for instance and persistent contract state (#66).
 const STATE_VERSION: u32 = 1;
 
@@ -550,6 +553,9 @@ impl ProjectRegistry {
         proposer.require_auth();
         if voting_duration_secs < MIN_VOTING_PERIOD {
             panic_with_error!(&env, RegistryError::VotingPeriodTooShort);
+        }
+        if description.len() > MAX_PROPOSAL_DESCRIPTION_LEN {
+            panic_with_error!(&env, RegistryError::ProposalDescriptionTooLong);
         }
         let counter: u32 = env
             .storage()
