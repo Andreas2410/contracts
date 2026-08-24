@@ -256,7 +256,13 @@ impl InvestmentVault {
     /// Fund multiple projects in a single batch transaction with multi-sig approvals (#184, #188).
     ///
     /// Rejects batch requests containing duplicate project IDs to prevent double-funding.
+    /// Panics with `EmptyBatchFunding` if `fundings` is empty (#445) — a no-op batch
+    /// is almost certainly a caller bug and should not pay `require_admin_approval`'s
+    /// cost for nothing.
     pub fn batch_fund_projects(env: Env, fundings: Vec<(u32, i128)>, approvals: Vec<Address>) {
+        if fundings.is_empty() {
+            panic_with_error!(&env, VaultError::EmptyBatchFunding);
+        }
         require_admin_approval(&env, approvals);
         let mut seen = Vec::new(&env);
         for funding in fundings.iter() {

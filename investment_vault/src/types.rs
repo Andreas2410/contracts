@@ -101,6 +101,8 @@ pub enum VaultError {
     /// complete_bridge_transfer's decoded payload targets a chain other than
     /// Stellar (#454).
     BridgeWrongTargetChain = 46,
+    /// batch_fund_projects received an empty fundings list (#445).
+    EmptyBatchFunding = 47,
 }
 
 #[contracttype]

@@ -113,6 +113,21 @@ fn test_update_impact_score() {
     assert_eq!(project.green_impact, 90);
 }
 
+// ── Issue #445: update_impact_scores_batch must reject an empty batch ──────────
+
+#[test]
+fn test_update_impact_scores_batch_empty_list_reverts() {
+    let (env, _admin, _whitelister, client) = setup();
+    let empty: Vec<(u32, u32, u32)> = Vec::new(&env);
+
+    let result = client.try_update_impact_scores_batch(&empty);
+
+    assert!(
+        result.is_err(),
+        "update_impact_scores_batch() should revert on an empty updates list"
+    );
+}
+
 #[test]
 fn test_multisig_update_impact_score_approved() {
     let (env, _admin, _whitelister, client) = setup();

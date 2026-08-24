@@ -94,6 +94,8 @@ pub enum RegistryError {
     AlreadyCertified = 38,
     /// create_proposal's description exceeds MAX_PROPOSAL_DESCRIPTION_LEN (#455).
     ProposalDescriptionTooLong = 39,
+    /// update_impact_scores_batch received an empty updates list (#445).
+    EmptyBatchUpdate = 40,
 }
 
 /// Certification state for a green project (#130).
