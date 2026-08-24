@@ -286,6 +286,7 @@ impl ProjectRegistry {
             final_green_impact: project.green_impact,
             maturity_date: project.maturity_date,
             certification_status: project.certification_status,
+            metadata_hash: project.metadata_hash,
         };
         env.storage()
             .persistent()
@@ -321,12 +322,21 @@ impl ProjectRegistry {
     /// trustless proof the content matches what the creator committed to.
     pub fn verify_metadata_hash(env: Env, project_id: u32, candidate_hash: BytesN<32>) -> bool {
         require_current_state(&env);
-        let project: ProjectData = env
+        if let Some(project) = env
             .storage()
             .persistent()
-            .get(&DataKey::Project(project_id))
+            .get::<DataKey, ProjectData>(&DataKey::Project(project_id))
+        {
+            return project.metadata_hash == candidate_hash;
+        }
+        // Project may have been compacted (#73) — fall back to the archive summary,
+        // which preserves metadata_hash precisely so this check keeps working (#448).
+        let summary: ArchiveSummary = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Arch(project_id))
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
-        project.metadata_hash == candidate_hash
+        summary.metadata_hash == candidate_hash
     }
 
     /// Return the current project counter (equals the highest assigned project ID).

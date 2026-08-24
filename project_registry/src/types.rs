@@ -163,6 +163,8 @@ pub struct ArchiveSummary {
     pub final_green_impact: u32,
     pub maturity_date: u64,
     pub certification_status: CertificationStatus,
+    /// Preserved so `verify_metadata_hash` keeps working after compaction (#448).
+    pub metadata_hash: BytesN<32>,
 }
 
 /// A governance proposal that HBS holders vote on (#134).
