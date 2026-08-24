@@ -1379,6 +1379,12 @@ impl InvestmentVault {
         if !trusted {
             panic!("emitter not trusted");
         }
+        // The payload's target_chain is decoded and is now checked (#454) rather
+        // than silently ignored — the field exists specifically to prevent a
+        // message meant for a different destination from being processed here.
+        if transfer.target_chain != wormhole::chain_id::STELLAR {
+            panic_with_error!(&env, VaultError::BridgeWrongTargetChain);
+        }
         // The payload's token_address is decoded and is now checked (#453) rather
         // than silently ignored — otherwise a VAA about a different asset would
         // be accepted and minted as HBS anyway if the emitter is ever reused for

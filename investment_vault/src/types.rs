@@ -98,6 +98,9 @@ pub enum VaultError {
     /// complete_bridge_transfer's decoded payload's token_address does not match
     /// this vault's own contract address (#453).
     BridgeTokenMismatch = 45,
+    /// complete_bridge_transfer's decoded payload targets a chain other than
+    /// Stellar (#454).
+    BridgeWrongTargetChain = 46,
 }
 
 #[contracttype]
