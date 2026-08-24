@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["project_registry", "investment_vault"]
+members = ["project_registry", "investment_vault", "libs/multisig"]
 
 [workspace.dependencies]
 soroban-sdk = { version = "=26.1.0" }

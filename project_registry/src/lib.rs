@@ -1145,18 +1145,19 @@ fn liquidate_collateral_internal(env: Env, project_id: u32, token: Address, reci
     events::collateral_liquidated(&env, project_id, &token, &recipient, balance);
 }
 
+/// Thin wrapper around the shared `multisig` crate (#459) mapping its
+/// generic errors onto this contract's own `RegistryError` codes.
 fn validate_multisig_config(env: &Env, signers: &Vec<Address>, threshold: u32) {
-    if signers.len() > MAX_MULTISIG_SIGNERS {
-        panic_with_error!(env, RegistryError::TooManyMultiSigSigners);
-    }
-    if threshold == 0 || threshold > signers.len() {
-        panic_with_error!(env, RegistryError::InvalidMultiSigThreshold);
-    }
-    for i in 0..signers.len() {
-        let signer = signers.get(i).unwrap();
-        for j in (i + 1)..signers.len() {
-            if signer == signers.get(j).unwrap() {
-                panic_with_error!(env, RegistryError::DuplicateApproval);
+    if let Err(e) = multisig::validate_multisig_config(signers, threshold, MAX_MULTISIG_SIGNERS) {
+        match e {
+            multisig::ConfigError::TooManySigners => {
+                panic_with_error!(env, RegistryError::TooManyMultiSigSigners)
+            }
+            multisig::ConfigError::InvalidThreshold => {
+                panic_with_error!(env, RegistryError::InvalidMultiSigThreshold)
+            }
+            multisig::ConfigError::DuplicateSigner => {
+                panic_with_error!(env, RegistryError::DuplicateApproval)
             }
         }
     }
@@ -1168,47 +1169,27 @@ fn require_admin_approval(env: &Env, approvals: Vec<Address>) {
         .instance()
         .get(&DataKey::MultiSigThreshold)
         .unwrap_or(0);
-    if threshold == 0 {
-        stellar_access::ownable::get_owner(env)
-            .unwrap()
-            .require_auth();
-        return;
-    }
-
     let signers: Vec<Address> = env
         .storage()
         .instance()
         .get(&DataKey::MultiSigSigners)
         .unwrap_or_else(|| Vec::new(env));
-    if threshold > signers.len() {
-        panic_with_error!(env, RegistryError::InvalidMultiSigThreshold);
-    }
-
-    let mut approved = 0u32;
-    for i in 0..approvals.len() {
-        let approver = approvals.get(i).unwrap();
-        for j in 0..i {
-            if approver == approvals.get(j).unwrap() {
-                panic_with_error!(env, RegistryError::DuplicateApproval);
+    let owner = stellar_access::ownable::get_owner(env).unwrap();
+    if let Err(e) = multisig::require_admin_approval(&owner, threshold, &signers, approvals) {
+        match e {
+            multisig::ApprovalError::InvalidThreshold => {
+                panic_with_error!(env, RegistryError::InvalidMultiSigThreshold)
+            }
+            multisig::ApprovalError::DuplicateApproval => {
+                panic_with_error!(env, RegistryError::DuplicateApproval)
+            }
+            multisig::ApprovalError::NotSigner => {
+                panic_with_error!(env, RegistryError::NotMultiSigSigner)
+            }
+            multisig::ApprovalError::InsufficientApprovals => {
+                panic_with_error!(env, RegistryError::InsufficientApprovals)
             }
         }
-
-        let mut is_signer = false;
-        for signer in signers.iter() {
-            if approver == signer {
-                is_signer = true;
-                break;
-            }
-        }
-        if !is_signer {
-            panic_with_error!(env, RegistryError::NotMultiSigSigner);
-        }
-        approver.require_auth();
-        approved += 1;
-    }
-
-    if approved < threshold {
-        panic_with_error!(env, RegistryError::InsufficientApprovals);
     }
 }
 
@@ -1218,7 +1199,7 @@ fn require_multisig_disabled(env: &Env) {
         .instance()
         .get(&DataKey::MultiSigThreshold)
         .unwrap_or(0);
-    if threshold > 0 {
+    if !multisig::is_multisig_disabled(threshold) {
         panic_with_error!(env, RegistryError::InsufficientApprovals);
     }
 }

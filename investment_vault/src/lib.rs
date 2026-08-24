@@ -1993,18 +1993,19 @@ fn claim_insurance_internal(env: Env, project_id: u32, recipient: Address, amoun
     events::insurance_claimed(&env, project_id, &recipient, amount);
 }
 
+/// Thin wrapper around the shared `multisig` crate (#459) mapping its
+/// generic errors onto this contract's own `VaultError` codes.
 fn validate_multisig_config(env: &Env, signers: &Vec<Address>, threshold: u32) {
-    if signers.len() > MAX_MULTISIG_SIGNERS {
-        panic_with_error!(env, VaultError::TooManyMultiSigSigners);
-    }
-    if threshold == 0 || threshold > signers.len() {
-        panic_with_error!(env, VaultError::InvalidMultiSigThreshold);
-    }
-    for i in 0..signers.len() {
-        let signer = signers.get(i).unwrap();
-        for j in (i + 1)..signers.len() {
-            if signer == signers.get(j).unwrap() {
-                panic_with_error!(env, VaultError::DuplicateApproval);
+    if let Err(e) = multisig::validate_multisig_config(signers, threshold, MAX_MULTISIG_SIGNERS) {
+        match e {
+            multisig::ConfigError::TooManySigners => {
+                panic_with_error!(env, VaultError::TooManyMultiSigSigners)
+            }
+            multisig::ConfigError::InvalidThreshold => {
+                panic_with_error!(env, VaultError::InvalidMultiSigThreshold)
+            }
+            multisig::ConfigError::DuplicateSigner => {
+                panic_with_error!(env, VaultError::DuplicateApproval)
             }
         }
     }
@@ -2016,47 +2017,27 @@ fn require_admin_approval(env: &Env, approvals: Vec<Address>) {
         .instance()
         .get(&VaultKey::MultiSigThreshold)
         .unwrap_or(0);
-    if threshold == 0 {
-        stellar_access::ownable::get_owner(env)
-            .unwrap()
-            .require_auth();
-        return;
-    }
-
     let signers: Vec<Address> = env
         .storage()
         .instance()
         .get(&VaultKey::MultiSigSigners)
         .unwrap_or_else(|| Vec::new(env));
-    if threshold > signers.len() {
-        panic_with_error!(env, VaultError::InvalidMultiSigThreshold);
-    }
-
-    let mut approved = 0u32;
-    for i in 0..approvals.len() {
-        let approver = approvals.get(i).unwrap();
-        for j in 0..i {
-            if approver == approvals.get(j).unwrap() {
-                panic_with_error!(env, VaultError::DuplicateApproval);
+    let owner = stellar_access::ownable::get_owner(env).unwrap();
+    if let Err(e) = multisig::require_admin_approval(&owner, threshold, &signers, approvals) {
+        match e {
+            multisig::ApprovalError::InvalidThreshold => {
+                panic_with_error!(env, VaultError::InvalidMultiSigThreshold)
+            }
+            multisig::ApprovalError::DuplicateApproval => {
+                panic_with_error!(env, VaultError::DuplicateApproval)
+            }
+            multisig::ApprovalError::NotSigner => {
+                panic_with_error!(env, VaultError::NotMultiSigSigner)
+            }
+            multisig::ApprovalError::InsufficientApprovals => {
+                panic_with_error!(env, VaultError::InsufficientApprovals)
             }
         }
-
-        let mut is_signer = false;
-        for signer in signers.iter() {
-            if approver == signer {
-                is_signer = true;
-                break;
-            }
-        }
-        if !is_signer {
-            panic_with_error!(env, VaultError::NotMultiSigSigner);
-        }
-        approver.require_auth();
-        approved += 1;
-    }
-
-    if approved < threshold {
-        panic_with_error!(env, VaultError::InsufficientApprovals);
     }
 }
 
@@ -2066,7 +2047,7 @@ fn require_multisig_disabled(env: &Env) {
         .instance()
         .get(&VaultKey::MultiSigThreshold)
         .unwrap_or(0);
-    if threshold > 0 {
+    if !multisig::is_multisig_disabled(threshold) {
         panic_with_error!(env, VaultError::InsufficientApprovals);
     }
 }
