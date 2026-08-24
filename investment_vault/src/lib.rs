@@ -384,6 +384,7 @@ impl InvestmentVault {
         if usdc_amount > MAX_DEPOSIT {
             panic_with_error!(&env, VaultError::DepositExceedsMaximum);
         }
+        check_max_transaction_amount(&env, usdc_amount);
 
         // Deduct insurance premium before share calculation (#135)
         let premium = usdc_amount * INSURANCE_PREMIUM_BPS / 10_000;
@@ -550,6 +551,7 @@ impl InvestmentVault {
         }
 
         let usdc_returned = Self::convert_to_assets(env.clone(), shares_amount);
+        check_max_transaction_amount(&env, usdc_returned);
 
         let usdc_sac: Address = env.storage().instance().get(&VaultKey::UsdcSac).unwrap();
         let liquid = soroban_sdk::token::TokenClient::new(&env, &usdc_sac)
@@ -1800,6 +1802,7 @@ fn fund_project_internal(env: Env, project_id: u32, amount: i128) {
     if project_id == 0 {
         panic_with_error!(&env, VaultError::ProjectNotFound);
     }
+    check_max_transaction_amount(&env, amount);
 
     let registry_addr: Address = env.storage().instance().get(&VaultKey::Registry).unwrap();
     let registry = registry_interface::Client::new(&env, &registry_addr);
@@ -1946,6 +1949,7 @@ fn claim_insurance_internal(env: Env, project_id: u32, recipient: Address, amoun
     if amount <= 0 {
         panic_with_error!(&env, VaultError::ClaimAmountNotPositive);
     }
+    check_max_transaction_amount(&env, amount);
     let already_claimed: bool = env
         .storage()
         .persistent()
@@ -2068,6 +2072,20 @@ fn read_state_version(env: &Env) -> u32 {
 fn require_current_state(env: &Env) {
     if read_state_version(env) != STATE_VERSION {
         panic_with_error!(env, VaultError::UnsupportedStateVersion);
+    }
+}
+
+/// Enforce the configured compliance transaction limit, if any (#457).
+/// `0` (the default) means "no limit configured" — matches the documented
+/// convention for `MaxTransactionAmount`.
+fn check_max_transaction_amount(env: &Env, amount: i128) {
+    let max: i128 = env
+        .storage()
+        .instance()
+        .get(&VaultKey::MaxTransactionAmount)
+        .unwrap_or(0);
+    if max > 0 && amount > max {
+        panic_with_error!(env, VaultError::ExceedsMaxTransactionAmount);
     }
 }
 

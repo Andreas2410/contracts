@@ -93,6 +93,8 @@ pub enum VaultError {
     FundingRoundActive = 42,
     /// Funding would push cumulative investment in a project above its per-project cap (#32).
     InvestmentCapExceeded = 43,
+    /// Requested amount exceeds the configured MaxTransactionAmount compliance limit (#457).
+    ExceedsMaxTransactionAmount = 44,
 }
 
 #[contracttype]
