@@ -117,6 +117,24 @@ describe("GET /notifications/history", () => {
     expect(res.body.items).toEqual([]);
     expect(res.body.total).toBe(0);
   });
+
+  // Issue #427: negative limit/offset must fall back rather than reach the SQL query.
+  it("falls back to defaults instead of passing a negative limit/offset through", async () => {
+    store = makeStore();
+    for (let i = 0; i < 3; i++) {
+      store.recordNotification("GINVESTOR", 1, "webhook", 100 + i);
+    }
+    const app = createApi(store);
+
+    const res = await request(app)
+      .get("/notifications/history")
+      .query({ limit: -1, offset: -5 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.limit).toBe(50);
+    expect(res.body.offset).toBe(0);
+    expect(res.body.items).toHaveLength(3);
+  });
 });
 
 // ── Issue #218: input validation for malformed payloads ─────────────────────
