@@ -1366,11 +1366,13 @@ impl InvestmentVault {
         let parsed = client.verify_vaa(&vaa);
         let transfer = wormhole::parse_bridge_payload(&env, &parsed.payload);
 
+        // Trust decision keyed off the VAA envelope's guardian-verified origin
+        // chain, not the payload-embedded (unverified) transfer.source_chain (#452).
         let trusted: bool = env
             .storage()
             .persistent()
             .get(&BridgeDataKey::TrustedEmitter(
-                transfer.source_chain,
+                parsed.emitter_chain,
                 parsed.emitter_address.clone(),
             ))
             .unwrap_or(false);
@@ -1397,7 +1399,7 @@ impl InvestmentVault {
         lock_deposit(&env, &to);
         events::bridge_transfer_completed(
             &env,
-            transfer.source_chain,
+            parsed.emitter_chain,
             &parsed.emitter_address,
             &to,
             transfer.amount,
