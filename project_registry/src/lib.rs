@@ -234,6 +234,10 @@ impl ProjectRegistry {
             .get(&DataKey::Project(project_id))
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
+        if project.status == types::ProjectStatus::Archived {
+            panic_with_error!(&env, RegistryError::ProjectArchived);
+        }
+
         project.status = types::ProjectStatus::Archived;
         env.storage()
             .persistent()
