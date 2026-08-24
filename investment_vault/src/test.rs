@@ -1577,6 +1577,160 @@ fn test_set_registry_is_admin_only() {
     s.vault_client.set_registry(&new_registry);
 }
 
+// ── Issue #428: set_bridge()/set_wormhole_core() success-path coverage ────────
+
+#[test]
+fn test_set_bridge_persists_emits_event_and_is_idempotent() {
+    let s = setup();
+    let bridge = Address::generate(&s.env);
+
+    s.vault_client.set_bridge(&bridge);
+
+    // env.events().all() only reflects the most recent contract invocation,
+    // so check events before making any further calls (including reads).
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(
+        !events.events().is_empty(),
+        "set_bridge should emit BridgeSet on first call"
+    );
+
+    let stored: Address = s.env.as_contract(&s.vault_address, || {
+        s.env
+            .storage()
+            .instance()
+            .get(&crate::types::VaultKey::Bridge)
+            .expect("bridge should be persisted after set_bridge")
+    });
+    assert_eq!(stored, bridge);
+
+    // Calling again with the same address hits the no-op early return
+    // (lib.rs:1247-1250) and must not re-emit an event.
+    s.vault_client.set_bridge(&bridge);
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(
+        events.events().is_empty(),
+        "set_bridge should be a no-op (no event) when the address is unchanged"
+    );
+}
+
+#[test]
+fn test_set_wormhole_core_persists() {
+    let s = setup();
+    let core = Address::generate(&s.env);
+
+    s.vault_client.set_wormhole_core(&core);
+
+    let stored: Address = s.env.as_contract(&s.vault_address, || {
+        s.env
+            .storage()
+            .instance()
+            .get(&BridgeDataKey::WormholeCore)
+            .expect("wormhole core should be persisted after set_wormhole_core")
+    });
+    assert_eq!(stored, core);
+}
+
+// ── Issue #429: set_carbon_oracle()/set_max_transaction_amount() success-path coverage ─
+
+#[test]
+fn test_set_carbon_oracle_persists_emits_event_and_is_idempotent() {
+    let s = setup();
+    let oracle = Address::generate(&s.env);
+
+    s.vault_client.set_carbon_oracle(&oracle);
+
+    // env.events().all() only reflects the most recent contract invocation,
+    // so check events before making any further calls (including reads).
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(
+        !events.events().is_empty(),
+        "set_carbon_oracle should emit CarbonOracleSet on first call"
+    );
+
+    let stored: Address = s.env.as_contract(&s.vault_address, || {
+        s.env
+            .storage()
+            .instance()
+            .get(&crate::types::VaultKey::CarbonOracle)
+            .expect("carbon oracle should be persisted after set_carbon_oracle")
+    });
+    assert_eq!(stored, oracle);
+
+    // Calling again with the same address hits the no-op early return
+    // (lib.rs:1488-1500) and must not re-emit an event.
+    s.vault_client.set_carbon_oracle(&oracle);
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(
+        events.events().is_empty(),
+        "set_carbon_oracle should be a no-op (no event) when the address is unchanged"
+    );
+}
+
+#[test]
+fn test_set_max_transaction_amount_persists_emits_event_and_is_idempotent() {
+    let s = setup();
+
+    s.vault_client.set_max_transaction_amount(&1_000_0000000i128);
+
+    // env.events().all() only reflects the most recent contract invocation,
+    // so check events before making any further calls (including reads).
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(
+        !events.events().is_empty(),
+        "set_max_transaction_amount should emit MaxTransactionAmountSet on first call"
+    );
+
+    assert_eq!(s.vault_client.max_transaction_amount(), 1_000_0000000i128);
+
+    // Calling again with the same value hits the no-op early return
+    // (lib.rs:1625-1639) and must not re-emit an event.
+    s.vault_client.set_max_transaction_amount(&1_000_0000000i128);
+    let events = s.env.events().all().filter_by_contract(&s.vault_address);
+    assert!(
+        events.events().is_empty(),
+        "set_max_transaction_amount should be a no-op (no event) when the value is unchanged"
+    );
+    assert_eq!(s.vault_client.max_transaction_amount(), 1_000_0000000i128);
+}
+
+// ── Issue #430: get_deposit_lock_expiry() coverage ─────────────────────────────
+
+#[test]
+fn test_get_deposit_lock_expiry() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+
+    // A fresh account (never deposited) has no lock in force.
+    assert_eq!(s.vault_client.get_deposit_lock_expiry(&investor), 0);
+
+    // Ledger timestamp 0 is indistinguishable from "never deposited" by
+    // get_deposit_lock_expiry's own sentinel check, so advance it first.
+    s.env.ledger().with_mut(|li| li.timestamp = 500);
+    let deposited_at = s.env.ledger().timestamp();
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    assert_eq!(
+        s.vault_client.get_deposit_lock_expiry(&investor),
+        deposited_at + MIN_LOCK_PERIOD
+    );
+}
+
+// ── Issue #431: is_funding_round_active() coverage ─────────────────────────────
+
+#[test]
+fn test_is_funding_round_active_reflects_start_and_end() {
+    let s = setup();
+
+    assert!(!s.vault_client.is_funding_round_active());
+
+    s.vault_client.start_funding_round();
+    assert!(s.vault_client.is_funding_round_active());
+
+    s.vault_client.end_funding_round();
+    assert!(!s.vault_client.is_funding_round_active());
+}
+
 // ── Issue #12: explicit project_id validation in fund_project ─────────────────
 
 #[test]
@@ -2283,18 +2437,14 @@ fn test_get_project_investments_batch_returns_correct_amounts() {
     registry_client.set_whitelist(&creator2, &true);
     let pid1 = registry_client.create_project(
         &creator1,
-        &String::from_str(&s.env, "Alpha"),
-        &String::from_str(&s.env, "desc"),
-        &100u32,
-        &80u32,
+        &String::from_str(&s.env, "ipfs://QmAlpha"),
+        &0u64,
         &test_metadata_hash(&s.env),
     );
     let pid2 = registry_client.create_project(
         &creator2,
-        &String::from_str(&s.env, "Beta"),
-        &String::from_str(&s.env, "desc"),
-        &90u32,
-        &70u32,
+        &String::from_str(&s.env, "ipfs://QmBeta"),
+        &0u64,
         &test_metadata_hash(&s.env),
     );
 
@@ -2313,6 +2463,37 @@ fn test_get_project_investments_batch_returns_correct_amounts() {
 
 #[test]
 fn test_get_all_project_investments_returns_all() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 2_000_0000000i128);
+    s.vault_client.deposit(&investor, &2_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let pid1 = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmAll1"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    let pid2 = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmAll2"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    let fund1 = 300_0000000i128;
+    let fund2 = 200_0000000i128;
+    s.vault_client.fund_project(&pid1, &fund1);
+    s.vault_client.fund_project(&pid2, &fund2);
+
+    let all = s.vault_client.get_all_project_investments();
+    assert_eq!(all.len(), 2);
+}
+
 // ── Issue #176: deposit() must reject a zero-amount deposit ──────────────────
 
 #[test]
@@ -2393,10 +2574,8 @@ fn test_claim_queued_is_idempotent_against_double_claim() {
     registry_client.set_whitelist(&creator, &true);
     let pid = registry_client.create_project(
         &creator,
-        &String::from_str(&s.env, "Gamma"),
-        &String::from_str(&s.env, "desc"),
-        &100u32,
-        &100u32,
+        &String::from_str(&s.env, "ipfs://QmGamma"),
+        &0u64,
         &test_metadata_hash(&s.env),
     );
 
@@ -2461,6 +2640,13 @@ fn test_get_set_withdrawal_window() {
     s.vault_client.set_withdrawal_window(&10u32);
     assert_eq!(s.vault_client.get_withdrawal_window(), 10u32);
 }
+
+#[test]
+fn test_claim_settles_queued_withdrawal_then_second_claim_is_noop() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
     mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
     let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
 
@@ -2477,6 +2663,7 @@ fn test_get_set_withdrawal_window() {
     s.vault_client.fund_project(&project_id, &490_0000000i128);
     s.env.ledger().with_mut(|li| {
         li.sequence_number += 1;
+        li.timestamp += MIN_LOCK_PERIOD + 1;
     });
     // Shares are burned immediately; claim is enqueued.
     let enqueued = s.vault_client.withdraw(&investor, &shares, &0);
@@ -2586,6 +2773,8 @@ fn test_volume_fee_tier_is_admin_only() {
         },
     }]);
     s.vault_client.set_volume_fee_tier(&500_0000000i128, &50u32);
+}
+
 // ── #179: convert_to_shares() overflow guard on extremely large deposits ──────
 
 /// Verify that `convert_to_shares` panics (rather than silently wrapping) when
