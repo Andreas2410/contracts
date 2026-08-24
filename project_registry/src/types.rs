@@ -92,6 +92,8 @@ pub enum RegistryError {
     BatchTooLarge = 37,
     /// Project is already certified with the target status.
     AlreadyCertified = 38,
+    /// create_proposal's description exceeds MAX_PROPOSAL_DESCRIPTION_LEN (#455).
+    ProposalDescriptionTooLong = 39,
 }
 
 /// Certification state for a green project (#130).

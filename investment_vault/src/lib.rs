@@ -1366,16 +1366,32 @@ impl InvestmentVault {
         let parsed = client.verify_vaa(&vaa);
         let transfer = wormhole::parse_bridge_payload(&env, &parsed.payload);
 
+        // Trust decision keyed off the VAA envelope's guardian-verified origin
+        // chain, not the payload-embedded (unverified) transfer.source_chain (#452).
         let trusted: bool = env
             .storage()
             .persistent()
             .get(&BridgeDataKey::TrustedEmitter(
-                transfer.source_chain,
+                parsed.emitter_chain,
                 parsed.emitter_address.clone(),
             ))
             .unwrap_or(false);
         if !trusted {
             panic!("emitter not trusted");
+        }
+        // The payload's target_chain is decoded and is now checked (#454) rather
+        // than silently ignored — the field exists specifically to prevent a
+        // message meant for a different destination from being processed here.
+        if transfer.target_chain != wormhole::chain_id::STELLAR {
+            panic_with_error!(&env, VaultError::BridgeWrongTargetChain);
+        }
+        // The payload's token_address is decoded and is now checked (#453) rather
+        // than silently ignored — otherwise a VAA about a different asset would
+        // be accepted and minted as HBS anyway if the emitter is ever reused for
+        // a multi-asset bridge.
+        if transfer.token_address != wormhole::address_to_bytes32(&env, &env.current_contract_address())
+        {
+            panic_with_error!(&env, VaultError::BridgeTokenMismatch);
         }
         let digest: BytesN<32> = env.crypto().sha256(&vaa).into();
         if env
@@ -1397,7 +1413,7 @@ impl InvestmentVault {
         lock_deposit(&env, &to);
         events::bridge_transfer_completed(
             &env,
-            transfer.source_chain,
+            parsed.emitter_chain,
             &parsed.emitter_address,
             &to,
             transfer.amount,
