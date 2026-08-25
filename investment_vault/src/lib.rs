@@ -1464,11 +1464,11 @@ impl InvestmentVault {
 
     // ── Flash loan ────────────────────────────────────────────────────────────
 
-    const DEFAULT_FLASH_LOAN_FEE: i128 = 30;
+    const DEFAULT_FLASH_LOAN_FEE: u32 = 30;
 
     /// Set the flash loan fee in basis points (owner-only) (#184).
     #[only_owner]
-    pub fn set_flash_loan_fee(env: Env, fee_bps: i128) {
+    pub fn set_flash_loan_fee(env: Env, fee_bps: u32) {
         if !(0..=1000).contains(&fee_bps) {
             panic_with_error!(&env, VaultError::FlashLoanFeeOutOfRange);
         }
@@ -1511,7 +1511,7 @@ impl InvestmentVault {
     }
 
     /// Return the current flash loan fee in basis points (#184).
-    pub fn flash_loan_fee(env: Env) -> i128 {
+    pub fn flash_loan_fee(env: Env) -> u32 {
         require_current_state(&env);
         env.storage()
             .instance()
@@ -1533,7 +1533,7 @@ impl InvestmentVault {
         }
         initiator.require_auth();
 
-        let fee_bps = Self::flash_loan_fee(env.clone());
+        let fee_bps = Self::flash_loan_fee(env.clone()) as i128;
         let fee = amount * fee_bps / 10000;
 
         let vault = env.current_contract_address();

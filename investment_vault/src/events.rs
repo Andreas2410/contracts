@@ -368,7 +368,7 @@ pub struct FlashLoan {
 
 #[contractevent]
 pub struct FlashLoanFeeSet {
-    pub fee_bps: i128,
+    pub fee_bps: u32,
 }
 
 pub fn flash_loan(env: &Env, initiator: &Address, borrower: &Address, amount: i128, fee: i128) {
@@ -381,7 +381,7 @@ pub fn flash_loan(env: &Env, initiator: &Address, borrower: &Address, amount: i1
     .publish(env);
 }
 
-pub fn flash_loan_fee_set(env: &Env, fee_bps: i128) {
+pub fn flash_loan_fee_set(env: &Env, fee_bps: u32) {
     FlashLoanFeeSet { fee_bps }.publish(env);
 }
 

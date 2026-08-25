@@ -280,3 +280,48 @@ describe("Notifier email channel", () => {
     expect(store.recordNotification).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Issue #396: MAX_TRACKED_NOTIFICATIONS bounded-eviction behavior ────────
+
+describe("Notifier bounded-eviction (#396)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("keeps notifiedRecipients at or below MAX_TRACKED_NOTIFICATIONS after many unique events", async () => {
+    const notifier = new Notifier(config, makeStore());
+
+    // Send 5050 unique events — 50 more than the cap — to trigger eviction
+    for (let i = 0; i < 5050; i++) {
+      const event = makeEvent({ ledger: 100 + i, timestamp: 1_700_000_000 + i });
+      await notifier.notifyInvestors(event, [preference.investor_address]);
+    }
+
+    const recipients = (notifier as any).notifiedRecipients as Set<string>;
+    expect(recipients.size).toBeLessThanOrEqual(5000);
+  });
+
+  it("evicts the oldest entry when capacity is exceeded", async () => {
+    const notifier = new Notifier(config, makeStore());
+
+    // Fill to exactly 5000
+    for (let i = 0; i < 5000; i++) {
+      const event = makeEvent({ ledger: 100 + i, timestamp: 1_700_000_000 + i });
+      await notifier.notifyInvestors(event, [preference.investor_address]);
+    }
+
+    const recipients = (notifier as any).notifiedRecipients as Set<string>;
+    const firstKey = recipients.values().next().value;
+
+    // Add one more to trigger eviction
+    const extraEvent = makeEvent({ ledger: 6100, timestamp: 1_700_006_100 });
+    await notifier.notifyInvestors(extraEvent, [preference.investor_address]);
+
+    expect(recipients.size).toBeLessThanOrEqual(5000);
+    // The oldest entry should have been evicted
+    expect(recipients.has(firstKey)).toBe(false);
+  });
+});
