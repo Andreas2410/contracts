@@ -72,6 +72,9 @@ const INSURANCE_PREMIUM_BPS: i128 = 50;
 /// fractions into decimal multipliers throughout the vault (#387).
 const BPS_SCALE: i128 = 10_000;
 
+/// Upper bound for credit-quality and green-impact score inputs (#386).
+const MAX_SCORE: u32 = 100;
+
 /// Maximum total supply of HBS shares (7 decimals) (#20).
 ///
 /// The vault's deposit mechanism already naturally limits supply based on USDC
@@ -1017,7 +1020,7 @@ impl InvestmentVault {
     #[only_owner]
     pub fn set_funding_thresholds(env: Env, min_credit_quality: u32, min_green_impact: u32) {
         require_current_state(&env);
-        if min_credit_quality > 100 || min_green_impact > 100 {
+        if min_credit_quality > MAX_SCORE || min_green_impact > MAX_SCORE {
             panic_with_error!(&env, VaultError::ThresholdOutOfRange);
         }
         env.storage()
