@@ -1351,6 +1351,7 @@ impl InvestmentVault {
         emitter_address: BytesN<32>,
         trusted: bool,
     ) {
+        require_current_state(&env);
         env.storage().persistent().set(
             &BridgeDataKey::TrustedEmitter(chain_id, emitter_address.clone()),
             &trusted,
