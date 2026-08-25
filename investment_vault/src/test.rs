@@ -3069,7 +3069,7 @@ fn test_flash_loan_succeeds_with_valid_same_transaction_repayment() {
 /// Verify that a borrower whose callback returns `false` causes the vault to
 /// panic, enforcing same-transaction repayment.
 #[test]
-#[should_panic(expected = "flash loan callback failed")]
+#[should_panic(expected = "Error(Contract, #50)")]
 fn test_flash_loan_fails_without_repayment() {
     mod mock_failing_receiver {
         use soroban_sdk::{contract, contractimpl, Address, Bytes, Env};

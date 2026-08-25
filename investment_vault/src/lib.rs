@@ -1306,10 +1306,10 @@ impl InvestmentVault {
             .storage()
             .instance()
             .get(&VaultKey::Bridge)
-            .expect("bridge not set");
+            .unwrap_or_else(|| panic_with_error!(&env, VaultError::BridgeNotSet));
         bridge.require_auth();
         if amount <= 0 {
-            panic!("amount must be positive");
+            panic_with_error!(&env, VaultError::AmountNotPositive);
         }
         if Base::total_supply(&env) + amount > MAX_HBS_SUPPLY {
             panic_with_error!(&env, VaultError::MaxSupplyExceeded);
@@ -1324,7 +1324,7 @@ impl InvestmentVault {
         require_current_state(&env);
         from.require_auth();
         if amount <= 0 {
-            panic!("amount must be positive");
+            panic_with_error!(&env, VaultError::AmountNotPositive);
         }
         Base::burn(&env, &from, amount);
         events::bridge_burn(&env, &from, amount);
@@ -1371,7 +1371,7 @@ impl InvestmentVault {
         require_current_state(&env);
         from.require_auth();
         if amount <= 0 {
-            panic!("amount must be positive");
+            panic_with_error!(&env, VaultError::AmountNotPositive);
         }
         Base::burn(&env, &from, amount);
 
@@ -1389,7 +1389,7 @@ impl InvestmentVault {
             .storage()
             .instance()
             .get(&BridgeDataKey::WormholeCore)
-            .expect("Wormhole core not set");
+            .unwrap_or_else(|| panic_with_error!(&env, VaultError::WormholeCoreNotSet));
         let client = WormholeCoreClient::new(&env, &core);
         let sequence = client.publish_message(&0u32, &payload_bytes);
         events::bridge_transfer_initiated(&env, &from, amount, target_chain, &recipient, sequence);
@@ -1403,7 +1403,7 @@ impl InvestmentVault {
             .storage()
             .instance()
             .get(&BridgeDataKey::WormholeCore)
-            .expect("Wormhole core not set");
+            .unwrap_or_else(|| panic_with_error!(&env, VaultError::WormholeCoreNotSet));
         let client = WormholeCoreClient::new(&env, &core);
         let parsed = client.verify_vaa(&vaa);
         let transfer = wormhole::parse_bridge_payload(&env, &parsed.payload);
@@ -1419,7 +1419,7 @@ impl InvestmentVault {
             ))
             .unwrap_or(false);
         if !trusted {
-            panic!("emitter not trusted");
+            panic_with_error!(&env, VaultError::EmitterNotTrusted);
         }
         // The payload's target_chain is decoded and is now checked (#454) rather
         // than silently ignored — the field exists specifically to prevent a
@@ -1441,7 +1441,7 @@ impl InvestmentVault {
             .persistent()
             .has(&BridgeDataKey::ConsumedVaa(digest.clone()))
         {
-            panic!("VAA already consumed");
+            panic_with_error!(&env, VaultError::VaaAlreadyConsumed);
         }
         env.storage()
             .persistent()
@@ -1470,7 +1470,7 @@ impl InvestmentVault {
     #[only_owner]
     pub fn set_flash_loan_fee(env: Env, fee_bps: i128) {
         if !(0..=1000).contains(&fee_bps) {
-            panic!("fee must be 0-1000 bps (0%-10%)");
+            panic_with_error!(&env, VaultError::FlashLoanFeeOutOfRange);
         }
         if Self::flash_loan_fee(env.clone()) == fee_bps {
             return;
@@ -1529,7 +1529,7 @@ impl InvestmentVault {
     ) {
         require_current_state(&env);
         if amount <= 0 {
-            panic!("amount must be positive");
+            panic_with_error!(&env, VaultError::AmountNotPositive);
         }
         initiator.require_auth();
 
@@ -1546,7 +1546,7 @@ impl InvestmentVault {
         let client = FlashLoanReceiverClient::new(&env, &borrower);
         let ok = client.flash_loan_callback(&initiator, &vault, &amount, &fee, &data);
         if !ok {
-            panic!("flash loan callback failed");
+            panic_with_error!(&env, VaultError::FlashLoanCallbackFailed);
         }
 
         Base::transfer(&env, &borrower, &MuxedAddress::from(&vault), amount + fee);
@@ -1586,11 +1586,11 @@ impl InvestmentVault {
             .storage()
             .instance()
             .get(&VaultKey::CarbonOracle)
-            .expect("carbon oracle not set");
+            .unwrap_or_else(|| panic_with_error!(&env, VaultError::CarbonOracleNotSet));
         oracle.require_auth();
 
         if price <= 0 {
-            panic!("price must be positive");
+            panic_with_error!(&env, VaultError::CarbonPriceNotPositive);
         }
         if Self::carbon_credit_price(env.clone()) == price {
             return;
@@ -1638,7 +1638,7 @@ impl InvestmentVault {
         let calc = Self::calculate_carbon_credits(env.clone(), project_id, amount);
 
         if calc.credits <= 0 {
-            panic!("no carbon credits to issue");
+            panic_with_error!(&env, VaultError::NoCarbonCreditsToIssue);
         }
 
         let prev: i128 = env
@@ -1660,7 +1660,7 @@ impl InvestmentVault {
         from.require_auth();
 
         if amount <= 0 {
-            panic!("amount must be positive");
+            panic_with_error!(&env, VaultError::AmountNotPositive);
         }
 
         let prev_from: i128 = env
@@ -1669,7 +1669,7 @@ impl InvestmentVault {
             .get(&VaultKey::CarbonCreditBalance(from.clone()))
             .unwrap_or(0);
         if prev_from < amount {
-            panic!("insufficient carbon credits");
+            panic_with_error!(&env, VaultError::InsufficientCarbonCredits);
         }
 
         let prev_to: i128 = env
@@ -1708,7 +1708,7 @@ impl InvestmentVault {
     pub fn set_max_transaction_amount(env: Env, amount: i128) {
         require_current_state(&env);
         if amount < 0 {
-            panic!("amount must be non-negative");
+            panic_with_error!(&env, VaultError::NegativeMaxTransactionAmount);
         }
         if Self::max_transaction_amount(env.clone()) == amount {
             return;
@@ -1769,7 +1769,7 @@ impl InvestmentVault {
         env.storage()
             .persistent()
             .get(&VaultKey::ComplianceEvent(seq))
-            .unwrap_or_else(|| panic!("compliance event not found"))
+            .unwrap_or_else(|| panic_with_error!(&env, VaultError::ComplianceEventNotFound))
     }
 
     /// Retrieve a range of compliance events for reporting (#184).
@@ -1818,7 +1818,7 @@ impl InvestmentVault {
         env.storage()
             .instance()
             .get(&VaultKey::ReportingSnapshot)
-            .unwrap_or_else(|| panic!("no snapshot taken"))
+            .unwrap_or_else(|| panic_with_error!(&env, VaultError::NoSnapshotTaken))
     }
 
     /// Export a full regulatory report combining current metrics and recent audit events (#184).
@@ -2308,7 +2308,8 @@ impl Ownable for InvestmentVault {
     /// Initiates a 2-step ownership transfer and emits a project-specific
     /// `OwnershipTransferred` event for auditing (#30).
     fn transfer_ownership(e: &Env, new_owner: Address, live_until_ledger: u32) {
-        let old_owner = get_owner(e).unwrap_or_else(|| panic!("owner not set"));
+        let old_owner =
+            get_owner(e).unwrap_or_else(|| panic_with_error!(e, VaultError::OwnerNotSet));
         ownable_transfer_ownership(e, &new_owner, live_until_ledger);
         events::ownership_transferred(e, &old_owner, &new_owner);
     }

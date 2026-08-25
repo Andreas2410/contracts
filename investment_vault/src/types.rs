@@ -106,6 +106,26 @@ pub enum VaultError {
     /// A batch deposit or fund-projects request exceeds the configured maximum
     /// batch size (#447).
     BatchTooLarge = 48,
+    /// set_flash_loan_fee's fee_bps argument is outside the allowed 0-1000 bps range (#402).
+    FlashLoanFeeOutOfRange = 49,
+    /// execute_flash_loan's borrower callback returned false (repayment not honoured) (#402).
+    FlashLoanCallbackFailed = 50,
+    /// set_carbon_credit_price called before set_carbon_oracle configured an oracle (#402).
+    CarbonOracleNotSet = 51,
+    /// set_carbon_credit_price's price argument is not positive (#402).
+    CarbonPriceNotPositive = 52,
+    /// issue_carbon_credits computed zero or fewer credits for the requested amount (#402).
+    NoCarbonCreditsToIssue = 53,
+    /// transfer_carbon_credits: sender's balance is less than the requested amount (#402).
+    InsufficientCarbonCredits = 54,
+    /// set_max_transaction_amount's amount argument is negative (#402).
+    NegativeMaxTransactionAmount = 55,
+    /// get_compliance_event: no event exists for the requested sequence number (#402).
+    ComplianceEventNotFound = 56,
+    /// get_latest_snapshot: no reporting snapshot has been taken yet (#402).
+    NoSnapshotTaken = 57,
+    /// transfer_ownership: no owner is currently set on the contract (#402).
+    OwnerNotSet = 58,
 }
 
 #[contracttype]
