@@ -281,6 +281,33 @@ describe("CORS configuration", () => {
     expect(res.body.enabled).toBe(true);
     expect(res.body.min_delta).toBe(5);
   });
+
+  // Issue #375: PUT should merge with existing preference, not overwrite missing fields
+  it("preserves existing fields when only some fields are sent", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    // Create initial preference with email and webhook_url
+    await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({
+        email: "me@example.com",
+        webhook_url: "https://my.app/hook",
+        enabled: true,
+        min_delta: 1,
+      });
+
+    // Update only min_delta — email and webhook_url should be preserved
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({ min_delta: 5 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.email).toBe("me@example.com");
+    expect(res.body.webhook_url).toBe("https://my.app/hook");
+    expect(res.body.min_delta).toBe(5);
+    expect(res.body.enabled).toBe(true);
+  });
 });
 
 // ── Issue #219: health-check with DB connectivity ──────────────────────────
