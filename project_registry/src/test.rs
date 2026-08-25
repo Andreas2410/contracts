@@ -1725,6 +1725,50 @@ fn test_score_history_multiple_updates_ordered() {
     assert!(history.get(1).unwrap().timestamp < history.get(2).unwrap().timestamp);
 }
 
+// ── Issue #434: get_score_history's ring-buffer wraparound was never tested ────
+
+#[test]
+fn test_score_history_wraps_around_past_max_score_history() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    // MAX_SCORE_HISTORY is 50; perform 55 updates (5 past the buffer size) with a
+    // distinct credit_quality each time so every call actually appends (no no-ops).
+    // Update i uses credit_quality = i, green_impact = 50 (fixed).
+    for i in 0..55u32 {
+        client.update_impact_score(&id, &i, &50u32);
+    }
+
+    let history = client.get_score_history(&id);
+
+    // Only the most recent MAX_SCORE_HISTORY (50) entries survive; updates 0-4
+    // were overwritten by updates 50-54.
+    assert_eq!(history.len(), 50);
+    assert_eq!(
+        history.get(0).unwrap().credit_quality,
+        5,
+        "oldest surviving entry should be update index 5 (updates 0-4 were overwritten)"
+    );
+    assert_eq!(
+        history.get(49).unwrap().credit_quality,
+        54,
+        "newest entry should be the last update (index 54)"
+    );
+
+    // Confirm every surviving entry is in strict chronological order with no gaps
+    // or leaked overwritten data: position k holds update index (5 + k).
+    for k in 0..50u32 {
+        assert_eq!(history.get(k).unwrap().credit_quality, 5 + k);
+    }
+}
+
 #[test]
 fn test_credit_quality_score_history_recorded() {
     let (env, _admin, _whitelister, client) = setup();
