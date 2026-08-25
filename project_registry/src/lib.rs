@@ -476,8 +476,9 @@ impl ProjectRegistry {
         events::project_certified(&env, project_id, status);
     }
 
-    /// Mark a project as settled once its maturity date has passed (#127).
-    /// Returns true if the project is mature and was settled, false if already past.
+    /// Check whether a project's maturity date has been reached (#127).
+    /// Returns true if the current ledger timestamp is on or after the maturity
+    /// date, false otherwise. Projects with no maturity date (0) are never mature.
     pub fn is_mature(env: Env, project_id: u32) -> bool {
         require_current_state(&env);
         let project: ProjectData = env
