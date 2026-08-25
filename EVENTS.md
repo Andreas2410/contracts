@@ -62,6 +62,18 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Description**: Emitted when an investor burns shares and receives USDC immediately (sufficient liquid USDC was available). See `withdraw_queued` for the insufficient-liquidity path.
 - **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
 
+### `withdraw_queued`
+- **Topics**: `["vault", "withdraw_queued"]`
+- **Data**: `(from: Address, shares_burned: i128, usdc_owed: i128)`
+- **Description**: Emitted when `withdraw` can't pay out immediately because liquid USDC is insufficient. Shares are burned right away and the USDC payout is enqueued in FIFO order; call `claim()` once liquidity is restored.
+- **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
+
+### `withdraw_claimed`
+- **Topics**: `["vault", "withdraw_claimed"]`
+- **Data**: `(to: Address, usdc_paid: i128, claim_index: u64)`
+- **Description**: Emitted when a previously queued redemption (see `withdraw_queued`) is settled.
+- **Emitted by**: [`claim`](INTERFACE.md#investmentvault)
+
 ### `project_funded`
 - **Topics**: `["vault", "project_funded"]`
 - **Data**: `(project_id: u32, amount: i128, recipient: Address)`
