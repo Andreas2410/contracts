@@ -443,6 +443,34 @@ fn test_get_projects_page_zero_limit_returns_empty() {
     assert_eq!(page.len(), 0);
 }
 
+// ── Issue #435: offset beyond the project counter was never explicitly tested ──
+
+#[test]
+fn test_get_projects_page_offset_beyond_counter_returns_empty() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    for i in 1..=5u32 {
+        client.create_project(
+            &creator,
+            &String::from_str(&env, &std::format!("ipfs://Qm{i}")),
+            &0u64,
+            &test_metadata_hash(&env),
+        );
+    }
+
+    // 5 projects exist; offset is far beyond the counter, distinct from a
+    // large-limit edge case (limit here is small and would page normally
+    // if offset were in range).
+    let page = client.get_projects_page(&1_000u32, &10u32);
+    assert_eq!(page.len(), 0);
+
+    // Also check the boundary: offset exactly equal to the counter should
+    // likewise return nothing (there's no project ID `counter + 1` yet).
+    let boundary_page = client.get_projects_page(&5u32, &10u32);
+    assert_eq!(boundary_page.len(), 0);
+}
+
 #[test]
 #[should_panic]
 fn test_update_impact_score_nonexistent_project_panics() {
