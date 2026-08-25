@@ -216,6 +216,38 @@ fn test_batch_deposit_mints_for_each_investor() {
     assert_eq!(s.vault_client.balance(&investor2), minted.get(1).unwrap());
 }
 
+// ── Issue #436: receive_yield must stay reachable once multisig is enabled ─────
+
+#[test]
+fn test_receive_yield_with_approvals_after_multisig_enabled() {
+    let s = setup();
+    let signer1 = Address::generate(&s.env);
+    let signer2 = Address::generate(&s.env);
+    let investor = Address::generate(&s.env);
+    let yield_source = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    s.vault_client.set_multisig_admin(
+        &soroban_sdk::vec![&s.env, signer1.clone(), signer2.clone()],
+        &2u32,
+    );
+
+    // receive_yield itself is now permanently blocked; only the approvals path works.
+    assert!(s.vault_client.try_receive_yield(&yield_source, &10_0000000i128).is_err());
+
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, 10_0000000i128);
+    s.env.mock_all_auths_allowing_non_root_auth();
+    s.vault_client.receive_yield_with_approvals(
+        &yield_source,
+        &10_0000000i128,
+        &soroban_sdk::vec![&s.env, signer1, signer2],
+    );
+
+    assert!(s.vault_client.claimable_yield(&investor) > 0);
+}
+
 #[test]
 fn test_multisig_batch_fund_projects() {
     let s = setup();

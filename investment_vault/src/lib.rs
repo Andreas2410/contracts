@@ -735,6 +735,22 @@ impl InvestmentVault {
         receive_yield_internal(env, from, amount);
     }
 
+    /// Deposit USDC yield into the vault using multi-sig admin approvals (#184, #436).
+    ///
+    /// Mirrors `fund_project_with_approvals`/`claim_insurance_with_approvals`: this is
+    /// the only usable path into `receive_yield_internal` once multisig is enabled,
+    /// since `receive_yield` itself is permanently blocked by `require_multisig_disabled`
+    /// after `set_multisig_admin` sets a threshold > 0.
+    pub fn receive_yield_with_approvals(
+        env: Env,
+        from: Address,
+        amount: i128,
+        approvals: Vec<Address>,
+    ) {
+        require_admin_approval(&env, approvals);
+        receive_yield_internal(env, from, amount);
+    }
+
     /// Return the USDC yield claimable by `account` without modifying state.
     pub fn claimable_yield(env: Env, account: Address) -> i128 {
         require_current_state(&env);
