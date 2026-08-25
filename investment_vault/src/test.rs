@@ -186,6 +186,39 @@ fn test_withdraw_returns_usdc() {
     assert_eq!(s.vault_client.balance(&investor), 0);
 }
 
+// ── Issue #406: withdraw()'s min_usdc_return slippage guard was never exercised ─
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_withdraw_rejects_when_min_usdc_return_exceeds_actual() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Fresh 1:1 vault: convert_to_assets(shares) == 1_000_0000000. Ask for 1 stroop more.
+    s.vault_client.withdraw(&investor, &shares, &(1_000_0000000i128 + 1));
+}
+
+#[test]
+fn test_withdraw_succeeds_when_min_usdc_return_exactly_equals_actual() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Boundary: usdc_returned == min_usdc_return should succeed (guard is `<`, not `<=`).
+    let returned = s.vault_client.withdraw(&investor, &shares, &1_000_0000000i128);
+
+    assert_eq!(returned, 1_000_0000000i128);
+}
+
 #[test]
 fn test_total_assets_after_deposit() {
     let s = setup();
