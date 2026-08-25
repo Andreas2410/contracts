@@ -140,7 +140,6 @@ describe("GET /notifications/history", () => {
 // ── Issue #218: input validation for malformed payloads ─────────────────────
 
 describe("PUT /preferences/:address input validation", () => {
-describe("CORS configuration", () => {
   let store: Store;
 
   afterEach(() => {
@@ -208,6 +207,47 @@ describe("CORS configuration", () => {
   });
 
   it("returns 400 when body is an array", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send([{ email: "test@example.com" }]);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/JSON object/);
+  });
+
+  it("accepts a valid payload and returns 200", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({
+        email: "test@example.com",
+        webhook_url: "https://example.com/webhook",
+        enabled: true,
+        min_delta: 5,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.email).toBe("test@example.com");
+    expect(res.body.webhook_url).toBe("https://example.com/webhook");
+    expect(res.body.enabled).toBe(true);
+    expect(res.body.min_delta).toBe(5);
+  });
+});
+
+// ── CORS configuration ─────────────────────────────────────────────────────
+
+describe("CORS configuration", () => {
+  let store: Store;
+
+  afterEach(() => {
+    store?.close();
+  });
+
   it("sets Access-Control-Allow-Origin for a matching origin", async () => {
     store = makeStore();
     const app = createApi(store, {
@@ -320,7 +360,9 @@ describe("GET /health with DB connectivity", () => {
   });
 });
 
-describe("GET /metrics", () => {
+// ── Issue #219: health-check with DB connectivity ──────────────────────────
+
+describe("GET /health with DB connectivity", () => {
   let store: Store;
 
   afterEach(() => {
@@ -350,6 +392,18 @@ describe("GET /metrics", () => {
 
     expect(res.status).toBe(503);
     expect(res.body.status).toBe("degraded");
+  });
+});
+
+// ── GET /metrics ───────────────────────────────────────────────────────────
+
+describe("GET /metrics", () => {
+  let store: Store;
+
+  afterEach(() => {
+    store?.close();
+  });
+
   it("returns snapshot from the provided Metrics instance", async () => {
     store = makeStore();
     const metrics = new Metrics();
