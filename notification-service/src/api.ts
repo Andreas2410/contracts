@@ -152,12 +152,16 @@ export function createApi(
       return;
     }
 
+    // Fetch existing preference to merge with incoming fields, so that
+    // omitting a field in the request preserves the existing value (#375).
+    const existing = store.getPreference(address);
+
     const pref: NotificationPreference = {
       investor_address: address,
-      email: email || undefined,
-      webhook_url: webhook_url || undefined,
-      enabled: enabled !== false,
-      min_delta: typeof min_delta === "number" ? min_delta : 1,
+      email: email !== undefined ? (email || undefined) : existing?.email,
+      webhook_url: webhook_url !== undefined ? (webhook_url || undefined) : existing?.webhook_url,
+      enabled: enabled !== undefined ? enabled : (existing?.enabled ?? true),
+      min_delta: typeof min_delta === "number" ? min_delta : (existing?.min_delta ?? 1),
       updated_at: new Date().toISOString(),
     };
 
