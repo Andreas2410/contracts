@@ -841,7 +841,7 @@ fn test_withdraw_fails_when_all_usdc_deployed() {
 // ── Issue #118: block share transfer to vault address ─────────────────────
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Error(Contract, #13)")]
 fn test_transfer_to_vault_address_rejected() {
     let s = setup();
     let investor = Address::generate(&s.env);
@@ -3256,6 +3256,8 @@ fn test_get_multisig_admin_after_set() {
     assert!(signers.contains(&signer1));
     assert!(signers.contains(&signer2));
     assert_eq!(threshold, 2);
+}
+
 // ── Issue #389: yield accrual and claim coverage ─────────────────────────────
 
 /// receive_yield updates the per-share accumulator so that a single depositor
@@ -3690,4 +3692,253 @@ fn test_export_regulatory_data_without_snapshot() {
     assert_eq!(report.snapshot.total_assets, 0);
     assert_eq!(report.recent_events.len(), 0);
     assert_eq!(report.max_transaction_amount, 0);
+}
+
+// ── Issue #383: bridge_mint / bridge_burn / complete_bridge_transfer ────────
+
+#[test]
+fn test_bridge_mint_happy_path() {
+    let s = setup();
+    let bridge = Address::generate(&s.env);
+    let recipient = Address::generate(&s.env);
+
+    s.vault_client.set_bridge(&bridge);
+    s.env.mock_auths(&[soroban_sdk::testutils::AuthMock {
+        address: &bridge,
+        invoke: &soroban_sdk::testutils::AuthInvocation {
+            contract: s.vault_address.clone(),
+            fn_name: "bridge_mint",
+            args: (&recipient, &100_0000000i128).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    s.vault_client.bridge_mint(&recipient, &100_0000000i128);
+
+    assert_eq!(s.vault_client.balance(&recipient), 100_0000000i128);
+    assert_eq!(s.vault_client.total_supply(), 100_0000000i128);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_bridge_mint_rejects_non_positive_amount() {
+    let s = setup();
+    let bridge = Address::generate(&s.env);
+    let recipient = Address::generate(&s.env);
+
+    s.vault_client.set_bridge(&bridge);
+    s.env.mock_auths(&[soroban_sdk::testutils::AuthMock {
+        address: &bridge,
+        invoke: &soroban_sdk::testutils::AuthInvocation {
+            contract: s.vault_address.clone(),
+            fn_name: "bridge_mint",
+            args: (&recipient, &0i128).into_val(&s.env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    s.vault_client.bridge_mint(&recipient, &0);
+}
+
+#[test]
+fn test_bridge_burn_happy_path() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+
+    // Deposit first so the investor has shares to burn.
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    s.vault_client.bridge_burn(&investor, &500_0000000i128);
+
+    assert_eq!(
+        s.vault_client.balance(&investor),
+        495_0000000i128,
+        "should burn 500 shares (1000 - 500 burned - 5 insurance on deposit)"
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_bridge_burn_rejects_non_positive_amount() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    s.vault_client.bridge_burn(&investor, &-1);
+}
+
+// ── complete_bridge_transfer — mock Wormhole core ──────────────────────────
+
+/// Minimal mock Wormhole core contract that returns a pre-configured
+/// `ParsedVaa` from `verify_vaa`.  Used only in tests below.
+#[contract]
+pub struct MockWormholeCore;
+
+#[contractimpl]
+impl MockWormholeCore {
+    pub fn __constructor(_env: Env) {}
+
+    /// Accept any VAA bytes and return the pre-stored `ParsedVaa`.
+    pub fn verify_vaa(env: Env, _vaa: Bytes) -> wormhole::ParsedVaa {
+        env.storage()
+            .instance()
+            .get(&soroban_sdk::String::from_str(&env, "return_vaa"))
+            .expect("return_vaa not set")
+    }
+
+    /// No-op — the vault only calls this on the outbound path.
+    pub fn publish_message(_env: Env, _consistency_level: u32, _payload: Bytes) -> u64 {
+        0
+    }
+}
+
+/// Register the mock Wormhole core contract and store `return_vaa` so
+/// `verify_vaa` will return it.  Returns the mock contract's Address.
+fn register_mock_core(env: &Env, return_vaa: wormhole::ParsedVaa) -> Address {
+    let mock_id = env.register(MockWormholeCore, ());
+    env.as_contract(&mock_id, || {
+        env.storage()
+            .instance()
+            .set(&soroban_sdk::String::from_str(env, "return_vaa"), &return_vaa);
+    });
+    mock_id
+}
+
+#[test]
+fn test_complete_bridge_transfer_happy_path() {
+    let s = setup();
+    let bridge = Address::generate(&s.env);
+    let emitter = Address::generate(&s.env);
+    let recipient = Address::generate(&s.env);
+    let amount: i128 = 200_0000000i128;
+
+    // Build the payload the mock will return inside ParsedVaa.
+    let token_address = wormhole::address_to_bytes32(&s.env, &s.vault_address);
+    let recipient_bytes = wormhole::address_to_bytes32(&s.env, &recipient);
+    let payload = wormhole::serialize_bridge_payload(
+        &s.env,
+        &wormhole::BridgeTransferPayload {
+            token_address: token_address.clone(),
+            recipient: recipient_bytes,
+            amount,
+            source_chain: wormhole::chain_id::ETHEREUM,
+            target_chain: wormhole::chain_id::STELLAR,
+            nonce: 1,
+        },
+    );
+
+    let emitter_bytes = wormhole::address_to_bytes32(&s.env, &emitter);
+    let return_vaa = wormhole::ParsedVaa {
+        emitter_chain: wormhole::chain_id::ETHEREUM,
+        emitter_address: emitter_bytes.clone(),
+        payload,
+    };
+
+    let mock_core = register_mock_core(&s.env, return_vaa);
+
+    // Configure vault: set bridge, Wormhole core, and trusted emitter.
+    s.vault_client.set_bridge(&bridge);
+    s.vault_client.set_wormhole_core(&mock_core);
+    s.vault_client.set_trusted_emitter(
+        &wormhole::chain_id::ETHEREUM,
+        &emitter_bytes,
+        &true,
+    );
+
+    // Call with any bytes — the mock ignores them and returns the stored VAA.
+    let dummy_vaa = soroban_sdk::Bytes::from_array(&s.env, &[0u8; 64]);
+    s.vault_client.complete_bridge_transfer(&dummy_vaa);
+
+    assert_eq!(s.vault_client.balance(&recipient), amount);
+    assert_eq!(s.vault_client.total_supply(), amount);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #22)")]
+fn test_complete_bridge_transfer_rejects_untrusted_emitter() {
+    let s = setup();
+    let bridge = Address::generate(&s.env);
+    let emitter = Address::generate(&s.env);
+    let recipient = Address::generate(&s.env);
+
+    let token_address = wormhole::address_to_bytes32(&s.env, &s.vault_address);
+    let recipient_bytes = wormhole::address_to_bytes32(&s.env, &recipient);
+    let payload = wormhole::serialize_bridge_payload(
+        &s.env,
+        &wormhole::BridgeTransferPayload {
+            token_address,
+            recipient: recipient_bytes,
+            amount: 100_0000000i128,
+            source_chain: wormhole::chain_id::ETHEREUM,
+            target_chain: wormhole::chain_id::STELLAR,
+            nonce: 2,
+        },
+    );
+
+    let emitter_bytes = wormhole::address_to_bytes32(&s.env, &emitter);
+    let return_vaa = wormhole::ParsedVaa {
+        emitter_chain: wormhole::chain_id::ETHEREUM,
+        emitter_address: emitter_bytes,
+        payload,
+    };
+
+    let mock_core = register_mock_core(&s.env, return_vaa);
+
+    s.vault_client.set_bridge(&bridge);
+    s.vault_client.set_wormhole_core(&mock_core);
+    // Do NOT call set_trusted_emitter — emitter is not trusted.
+
+    let dummy_vaa = soroban_sdk::Bytes::from_array(&s.env, &[0u8; 64]);
+    s.vault_client.complete_bridge_transfer(&dummy_vaa);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #23)")]
+fn test_complete_bridge_transfer_rejects_replayed_vaa() {
+    let s = setup();
+    let bridge = Address::generate(&s.env);
+    let emitter = Address::generate(&s.env);
+    let recipient = Address::generate(&s.env);
+
+    let token_address = wormhole::address_to_bytes32(&s.env, &s.vault_address);
+    let recipient_bytes = wormhole::address_to_bytes32(&s.env, &recipient);
+    let payload = wormhole::serialize_bridge_payload(
+        &s.env,
+        &wormhole::BridgeTransferPayload {
+            token_address,
+            recipient: recipient_bytes,
+            amount: 100_0000000i128,
+            source_chain: wormhole::chain_id::ETHEREUM,
+            target_chain: wormhole::chain_id::STELLAR,
+            nonce: 3,
+        },
+    );
+
+    let emitter_bytes = wormhole::address_to_bytes32(&s.env, &emitter);
+    let return_vaa = wormhole::ParsedVaa {
+        emitter_chain: wormhole::chain_id::ETHEREUM,
+        emitter_address: emitter_bytes,
+        payload,
+    };
+
+    let mock_core = register_mock_core(&s.env, return_vaa);
+
+    s.vault_client.set_bridge(&bridge);
+    s.vault_client.set_wormhole_core(&mock_core);
+    s.vault_client.set_trusted_emitter(
+        &wormhole::chain_id::ETHEREUM,
+        &emitter_bytes,
+        &true,
+    );
+
+    let dummy_vaa = soroban_sdk::Bytes::from_array(&s.env, &[0u8; 64]);
+
+    // First call succeeds.
+    s.vault_client.complete_bridge_transfer(&dummy_vaa);
+
+    // Second call with the same VAA must fail (replay guard).
+    s.vault_client.complete_bridge_transfer(&dummy_vaa);
 }

@@ -286,6 +286,7 @@ Every state-changing function emits a structured event. Topics are indexed by th
 | `YieldClaimed` | `to` (Address) | `amount` (i128) | `claim_yield()` |
 | `InsuranceClaimed` | `project_id` (u32) | `recipient` (Address), `amount` (i128) | `claim_insurance()` |
 | `OwnershipTransfer` | (library) | `new_owner` (Address) | `transfer_ownership()` — emitted by `stellar-access` |
+| `OwnershipTransferred` | `old_owner` (Address), `new_owner` (Address) | — | `transfer_ownership()` — contract-defined, for audit trail |
 | `OwnershipTransferCompleted` | (library) | `new_owner` (Address) | `accept_ownership()` — emitted by `stellar-access` |
 | `OwnershipRenounced` | (library) | — | `renounce_ownership()` — emitted by `stellar-access` |
 
@@ -302,6 +303,7 @@ Every state-changing function emits a structured event. Topics are indexed by th
 | `VoteCast` | `proposal_id` (u32) | `voter` (Address), `support` (bool), `weight` (i128) | `cast_vote()` |
 | `ProposalExecuted` | `proposal_id` (u32) | `passed` (bool) | `execute_proposal()` |
 | `OwnershipTransfer` | (library) | `new_owner` (Address) | `transfer_ownership()` — emitted by `stellar-access` |
+| `OwnershipTransferred` | `old_owner` (Address), `new_owner` (Address) | — | `transfer_ownership()` — contract-defined, for audit trail |
 | `OwnershipTransferCompleted` | (library) | `new_owner` (Address) | `accept_ownership()` — emitted by `stellar-access` |
 | `OwnershipRenounced` | (library) | — | `renounce_ownership()` — emitted by `stellar-access` |
 
