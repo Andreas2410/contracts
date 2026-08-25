@@ -125,6 +125,7 @@ async function fetchEvents(
         event.value,
         event.ledger,
         event.timestamp,
+        contractId,
       );
       if (decoded) {
         console.log(
