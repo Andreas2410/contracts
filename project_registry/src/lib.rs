@@ -48,6 +48,14 @@ const MIN_VOTING_PERIOD: u64 = 86_400;
 #[allow(dead_code)]
 const MIN_UPDATE_INTERVAL: u64 = 3600;
 
+/// Minimum remaining TTL in ledgers before extending persistent storage rent (#388).
+/// At 5 s/ledger this equals ~1 day (17 280 ledgers).
+const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 17_280;
+
+/// Target TTL in ledgers after extension (#388).
+/// At 5 s/ledger this equals ~30 days (518 400 ledgers).
+const TTL_EXTEND_TO_LEDGERS: u32 = 518_400;
+
 pub const CONTRACT_NAME: &str = "Project Registry";
 pub const CONTRACT_DESCRIPTION: &str = "Heliobond Project Registry";
 pub const CONTRACT_VERSION: &str = "1.0.0";
@@ -217,7 +225,7 @@ impl ProjectRegistry {
             .set(&DataKey::Project(project_id), &project);
         env.storage()
             .persistent()
-            .extend_ttl(&DataKey::Project(project_id), 17280, 518400); // Add rent check/extend
+            .extend_ttl(&DataKey::Project(project_id), TTL_EXTEND_THRESHOLD_LEDGERS, TTL_EXTEND_TO_LEDGERS); // Add rent check/extend
         env.storage()
             .instance()
             .set(&DataKey::ProjectCounter, &project_id);

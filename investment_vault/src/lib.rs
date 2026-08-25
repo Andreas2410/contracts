@@ -100,6 +100,14 @@ const MIN_LOCK_PERIOD: u64 = 86_400;
 /// Seconds in one year, used for time-weighted expected-returns (#34).
 const ANNUAL_PERIOD_SECS: i128 = 31_536_000;
 
+/// Minimum remaining TTL in ledgers before extending persistent storage rent (#388).
+/// At 5 s/ledger this equals ~1 day (17 280 ledgers).
+const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 17_280;
+
+/// Target TTL in ledgers after extension (#388).
+/// At 5 s/ledger this equals ~30 days (518 400 ledgers).
+const TTL_EXTEND_TO_LEDGERS: u32 = 518_400;
+
 mod composability;
 mod events;
 mod logic;
@@ -480,7 +488,7 @@ impl InvestmentVault {
         env.storage()
             .persistent()
             .set(&key, &(prev_dep + usdc_amount));
-        env.storage().persistent().extend_ttl(&key, 17280, 518400); // Add rent check/extend
+        env.storage().persistent().extend_ttl(&key, TTL_EXTEND_THRESHOLD_LEDGERS, TTL_EXTEND_TO_LEDGERS); // Add rent check/extend
 
         // Update cached total assets: liquid increases by full usdc_amount (#81, #85)
         let cached_ta: i128 = env
