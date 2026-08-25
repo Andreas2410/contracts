@@ -61,3 +61,21 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(from: Address, amount: i128)`
 - **Description**: Emitted when yield repayment USDC is received from a project and folded into the yield-per-share accumulator for later claims.
 - **Emitted by**: [`receive_yield`](INTERFACE.md#investmentvault)
+
+### `bridge_transfer_initiated`
+- **Topics**: `["vault", "bridge_transfer_initiated"]`
+- **Data**: `(from: Address, amount: i128, target_chain: u32, recipient: BytesN<32>, sequence: u64)`
+- **Description**: Emitted when an outbound Wormhole cross-chain bridge transfer is initiated: shares are burned from `from` and a message is queued for the target chain.
+- **Emitted by**: [`initiate_bridge_transfer`](INTERFACE.md#investmentvault)
+
+### `bridge_transfer_completed`
+- **Topics**: `["vault", "bridge_transfer_completed"]`
+- **Data**: `(source_chain: u32, emitter: BytesN<32>, to: Address, amount: i128)`
+- **Description**: Emitted when an inbound Wormhole VAA is verified and its transfer completed, minting shares to `to`.
+- **Emitted by**: [`complete_bridge_transfer`](INTERFACE.md#investmentvault)
+
+### `trusted_emitter_set`
+- **Topics**: `["vault", "trusted_emitter_set"]`
+- **Data**: `(chain_id: u32, emitter: BytesN<32>, trusted: bool)`
+- **Description**: Emitted when a cross-chain emitter address is registered or unregistered as trusted for a given source chain, gating which inbound VAAs `complete_bridge_transfer` will accept.
+- **Emitted by**: [`set_trusted_emitter`](INTERFACE.md#investmentvault)
