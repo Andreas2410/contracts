@@ -96,6 +96,11 @@ pub enum RegistryError {
     ProposalDescriptionTooLong = 39,
     /// update_impact_scores_batch received an empty updates list (#445).
     EmptyBatchUpdate = 40,
+    /// set_project_status was asked to set or clear `Archived` — use
+    /// `archive_project` instead, since archived projects are immutable (#329).
+    InvalidStatusTransition = 41,
+    /// set_project_status was called with the project's current status (#329).
+    ProjectStatusUnchanged = 42,
     /// compact_storage input exceeds the maximum allowed batch size (#332).
     CompactStorageTooLarge = 41,
     /// create_proposal voting_duration_secs exceeds the maximum allowed period (#332).
@@ -113,6 +118,13 @@ pub enum CertificationStatus {
     Revoked = 3,
 }
 
+/// Lifecycle status of a project (#27).
+///
+/// `Pending` is set at creation and `Archived` via `archive_project`.
+/// `Active`, `Funded`, and `Completed` are set via `set_project_status`
+/// (admin/vault-callable) — this contract does not transition into them on
+/// its own; a cross-contract call from the vault on real funding events is
+/// tracked separately (#329).
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 #[repr(u32)]

@@ -8,9 +8,27 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 
 ### `project_created`
 - **Topics**: `["project", "created"]`
-- **Data**: `(project_id: u32, creator: Address)`
+- **Data**: `(project_id: u32, owner: Address)`
 - **Description**: Emitted when a new project is created in the registry.
 - **Emitted by**: [`create_project`](INTERFACE.md#projectregistry)
+
+### `project_updated`
+- **Topics**: `["project", "updated"]`
+- **Data**: `(project_id: u32, credit_quality: u32, green_impact: u32)`
+- **Description**: Emitted when both impact scores are updated together.
+- **Emitted by**: [`update_impact_score`](INTERFACE.md#projectregistry) / [`update_impact_score_approved`](INTERFACE.md#projectregistry)
+
+### `credit_quality_updated`
+- **Topics**: `["project", "credit_quality_updated"]`
+- **Data**: `(project_id: u32, credit_quality: u32)`
+- **Description**: Emitted when only the credit-quality score is updated.
+- **Emitted by**: [`update_credit_quality_score`](INTERFACE.md#projectregistry)
+
+### `rate_updated`
+- **Topics**: `["project", "rate_updated"]`
+- **Data**: `(project_id: u32, rate_bps: u32)`
+- **Description**: Emitted alongside `project_updated`/`score_changed` whenever a project's interest rate is recalculated.
+- **Emitted by**: [`update_impact_score`](INTERFACE.md#projectregistry) / [`update_impact_score_approved`](INTERFACE.md#projectregistry) / [`update_impact_scores_batch`](INTERFACE.md#projectregistry) / [`update_scores_batch_approved`](INTERFACE.md#projectregistry)
 
 ### `score_changed`
 - **Topics**: `["score_changed", project_id: u32]`
@@ -23,6 +41,12 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(project_id: u32)`
 - **Description**: Emitted when a project is archived.
 - **Emitted by**: [`archive_project`](INTERFACE.md#projectregistry)
+
+### `project_status_changed`
+- **Topics**: `["project_status_changed", project_id: u32]`
+- **Data**: `(old_status: ProjectStatus, new_status: ProjectStatus)`
+- **Description**: Emitted when a project's lifecycle status transitions between `Pending`, `Active`, `Funded`, or `Completed` (#329). Not emitted for `Archived` — see `project_archived`.
+- **Emitted by**: [`set_project_status`](INTERFACE.md#projectregistry)
 
 ### `project_deleted`
 - **Topics**: `["project", "deleted"]`
@@ -47,6 +71,72 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(project_id: u32, token: Address, receiver: Address, amount: i128)`
 - **Description**: Emitted when collateral is returned to the project owner.
 - **Emitted by**: [`release_collateral`](INTERFACE.md#projectregistry)
+
+### `collateral_liquidated`
+- **Topics**: `["project", "collateral_liquidated"]`
+- **Data**: `(project_id: u32, token: Address, recipient: Address, amount: i128)`
+- **Description**: Emitted when collateral is seized to `recipient` for a defaulted project.
+- **Emitted by**: [`liquidate_collateral`](INTERFACE.md#projectregistry) / [`liquidate_collateral_approved`](INTERFACE.md#projectregistry)
+
+### `whitelist_set`
+- **Topics**: `["whitelist_set"]`
+- **Data**: `(account: Address, status: bool)`
+- **Description**: Emitted when an account's project-creation whitelist status is granted or revoked.
+- **Emitted by**: [`set_whitelist`](INTERFACE.md#projectregistry)
+
+### `project_certified`
+- **Topics**: `["project", "certified"]`
+- **Data**: `(project_id: u32, status: CertificationStatus)`
+- **Description**: Emitted when a project's certification status changes.
+- **Emitted by**: [`certify_project`](INTERFACE.md#projectregistry)
+
+### `proposal_created`
+- **Topics**: `["proposal_created"]`
+- **Data**: `(proposal_id: u32, proposer: Address, voting_ends_at: u64)`
+- **Description**: Emitted when a governance proposal is created.
+- **Emitted by**: [`create_proposal`](INTERFACE.md#projectregistry)
+
+### `vote_cast`
+- **Topics**: `["vote_cast"]`
+- **Data**: `(proposal_id: u32, voter: Address, support: bool, weight: i128)`
+- **Description**: Emitted when a vote is cast on an open proposal.
+- **Emitted by**: [`cast_vote`](INTERFACE.md#projectregistry)
+
+### `proposal_executed`
+- **Topics**: `["proposal_executed"]`
+- **Data**: `(proposal_id: u32, passed: bool)`
+- **Description**: Emitted when a proposal is finalised after its voting period ends.
+- **Emitted by**: [`execute_proposal`](INTERFACE.md#projectregistry)
+
+### `reputation_updated`
+- **Topics**: `["reputation_updated"]`
+- **Data**: `(creator: Address, score: u32)`
+- **Description**: Emitted when a creator's reputation score is set.
+- **Emitted by**: [`set_creator_reputation`](INTERFACE.md#projectregistry)
+
+### `registry_paused` / `registry_unpaused`
+- **Topics**: `["registry_paused"]` / `["registry_unpaused"]`
+- **Data**: none
+- **Description**: Emitted when the circuit breaker is engaged or released.
+- **Emitted by**: [`pause`](INTERFACE.md#projectregistry) / [`unpause`](INTERFACE.md#projectregistry) / [`emergency_pause`](INTERFACE.md#projectregistry) / [`emergency_unpause`](INTERFACE.md#projectregistry)
+
+### `emergency_admin_changed`
+- **Topics**: `["emergency_admin_changed"]`
+- **Data**: `(new_emergency_admin: Option<Address>)`
+- **Description**: Emitted when the owner sets or clears the emergency-admin address.
+- **Emitted by**: [`set_emergency_admin`](INTERFACE.md#projectregistry)
+
+### `whitelister_changed`
+- **Topics**: `["whitelister_changed"]`
+- **Data**: `(old_whitelister: Address, new_whitelister: Address)`
+- **Description**: Emitted when the owner replaces the whitelister address.
+- **Emitted by**: [`set_whitelister`](INTERFACE.md#projectregistry)
+
+### `ownership_transferred`
+- **Topics**: `["ownership_transferred", old_owner: Address, new_owner: Address]`
+- **Data**: none
+- **Description**: Emitted alongside the underlying `stellar-access` ownership-transfer event when a two-step ownership transfer is initiated.
+- **Emitted by**: `transfer_ownership` (from the `Ownable` trait)
 
 ## Investment Vault Events
 
