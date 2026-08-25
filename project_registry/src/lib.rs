@@ -1117,6 +1117,7 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
 }
 
 fn liquidate_collateral_internal(env: Env, project_id: u32, token: Address, recipient: Address) {
+    require_current_state(&env);
     let project: ProjectData = env
         .storage()
         .persistent()
