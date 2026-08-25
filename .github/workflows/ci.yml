@@ -116,6 +116,12 @@ jobs:
       - name: Format check (prettier) (#248)
         run: npm run format:check
 
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
   security:
     runs-on: ubuntu-latest
     steps:

@@ -395,6 +395,41 @@ describe("GET /health with DB connectivity", () => {
   });
 });
 
+// ── Issue #339: DELETE /preferences/:address ────────────────────────────────
+
+describe("DELETE /preferences/:address", () => {
+  let store: Store;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("removes an existing preference (subsequent GET returns 404)", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    // Create a preference first
+    await request(app)
+      .put("/preferences/GINVESTOR")
+      .send({ email: "test@example.com" });
+
+    const del = await request(app).delete("/preferences/GINVESTOR");
+    expect(del.status).toBe(204);
+
+    // GET should now return 404
+    const get = await request(app).get("/preferences/GINVESTOR");
+    expect(get.status).toBe(404);
+  });
+
+  it("returns 204 for a non-existent address (idempotent)", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const del = await request(app).delete("/preferences/GNONEXISTENT");
+    expect(del.status).toBe(204);
+  });
+});
+
 // ── GET /metrics ───────────────────────────────────────────────────────────
 
 describe("GET /metrics", () => {
