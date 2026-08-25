@@ -420,16 +420,28 @@ impl ProjectRegistry {
     pub fn update_impact_scores_batch(env: Env, updates: Vec<(u32, u32, u32)>) {
         require_not_paused(&env);
         require_multisig_disabled(&env);
-        if updates.is_empty() {
-            panic_with_error!(&env, RegistryError::EmptyBatchUpdate);
-        }
-        if updates.len() > MAX_BATCH_SCORE_SIZE {
-            panic_with_error!(&env, RegistryError::BatchTooLarge);
-        }
-        for entry in updates.iter() {
-            let (project_id, credit_quality, green_impact) = entry;
-            update_impact_score_internal(env.clone(), project_id, credit_quality, green_impact);
-        }
+        update_impact_scores_batch_internal(env, updates);
+    }
+
+    /// Update impact scores for multiple projects using multi-sig admin approvals (#184, #437).
+    ///
+    /// Mirrors `update_impact_score_approved`/`liquidate_collateral_approved`: this is
+    /// the usable batch-update path once multisig is enabled, since
+    /// `update_impact_scores_batch` itself is blocked by `require_multisig_disabled`
+    /// after `set_multisig_admin` sets a threshold > 0. Same validation as
+    /// `update_impact_scores_batch` (empty-batch/size-cap checks, no-op skipping).
+    ///
+    /// Named `update_scores_batch_approved` rather than
+    /// `update_impact_scores_batch_approved` because Soroban caps exported
+    /// contract function names at 32 bytes and the longer name exceeds it.
+    pub fn update_scores_batch_approved(
+        env: Env,
+        updates: Vec<(u32, u32, u32)>,
+        approvals: Vec<Address>,
+    ) {
+        require_not_paused(&env);
+        require_admin_approval(&env, approvals);
+        update_impact_scores_batch_internal(env, updates);
     }
 
     /// Set the certification status of a project (whitelister or owner only) (#130).
@@ -1074,6 +1086,19 @@ impl ProjectRegistry {
             }
         }
         removed
+    }
+}
+
+fn update_impact_scores_batch_internal(env: Env, updates: Vec<(u32, u32, u32)>) {
+    if updates.is_empty() {
+        panic_with_error!(&env, RegistryError::EmptyBatchUpdate);
+    }
+    if updates.len() > MAX_BATCH_SCORE_SIZE {
+        panic_with_error!(&env, RegistryError::BatchTooLarge);
+    }
+    for entry in updates.iter() {
+        let (project_id, credit_quality, green_impact) = entry;
+        update_impact_score_internal(env.clone(), project_id, credit_quality, green_impact);
     }
 }
 
