@@ -317,7 +317,7 @@ Cross-contract calls are the most expensive single operation in Soroban. Each ca
 | `cast_vote` | `HasVoted(id, addr)`, `Proposal(id)` | `Proposal(id)`, `HasVoted(id, addr)` |
 | `execute_proposal` | `Proposal(id)` | `Proposal(id)` |
 | `deposit` | `UsdcSac`, `InsuranceFund`, `TotalDeposited(from)`, `CachedTotalAssets` | `InsuranceFund`, `TotalDeposited(from)`, `CachedTotalAssets` |
-| `withdraw` | `UsdcSac`, `CachedTotalAssets` | `CachedTotalAssets` |
+| `withdraw` | `UsdcSac`, `CachedTotalAssets`; queued-payout branch (insufficient liquidity) also reads `QueueTail` | `CachedTotalAssets`; queued-payout branch also writes `QueueTail` and `QueueEntry(u64)` |
 | `fund_project` | `Registry`, `UsdcSac`, `InsuranceFund`, `ProjectInvestment(id)`, `TotalInvestments` + 1 cross-contract `get_project` | `ProjectInvestment(id)`, `TotalInvestments` |
 | `receive_yield` | `YieldPerShareAccum` | `YieldPerShareAccum` |
 | `claim_yield` | `YieldPerShareAccum`, `YieldDebt(from)`, `UsdcSac`, `CachedTotalAssets` | `YieldDebt(from)`, `CachedTotalAssets` |
