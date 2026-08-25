@@ -3229,3 +3229,31 @@ fn test_insurance_fund_accumulates_across_deposits() {
     let premium_b = amount_b * 50 / 10_000;
     assert_eq!(s.vault_client.insurance_fund_balance(), premium_a + premium_b);
 }
+
+// ── get_multisig_admin tests (#384) ───────────────────────────────────────────
+
+#[test]
+fn test_get_multisig_admin_returns_empty_by_default() {
+    let s = setup();
+    let (signers, threshold) = s.vault_client.get_multisig_admin();
+    assert_eq!(signers.len(), 0);
+    assert_eq!(threshold, 0);
+}
+
+#[test]
+fn test_get_multisig_admin_after_set() {
+    let s = setup();
+    let signer1 = Address::generate(&s.env);
+    let signer2 = Address::generate(&s.env);
+
+    s.vault_client.set_multisig_admin(
+        &soroban_sdk::vec![&s.env, signer1.clone(), signer2.clone()],
+        &2u32,
+    );
+
+    let (signers, threshold) = s.vault_client.get_multisig_admin();
+    assert_eq!(signers.len(), 2);
+    assert!(signers.contains(&signer1));
+    assert!(signers.contains(&signer2));
+    assert_eq!(threshold, 2);
+}

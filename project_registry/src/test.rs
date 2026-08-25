@@ -2302,3 +2302,53 @@ proptest! {
         prop_assert!(result.is_err());
     }
 }
+
+// ── get_multisig_admin / clear_multisig_admin tests (#384) ────────────────────
+
+#[test]
+fn test_get_multisig_admin_returns_empty_by_default() {
+    let (_env, _admin, _whitelister, client) = setup();
+    let (signers, threshold) = client.get_multisig_admin();
+    assert_eq!(signers.len(), 0);
+    assert_eq!(threshold, 0);
+}
+
+#[test]
+fn test_get_multisig_admin_after_set() {
+    let (env, _admin, _whitelister, client) = setup();
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+
+    client.set_multisig_admin(
+        &soroban_sdk::vec![&env, signer1.clone(), signer2.clone()],
+        &2u32,
+    );
+
+    let (signers, threshold) = client.get_multisig_admin();
+    assert_eq!(signers.len(), 2);
+    assert!(signers.contains(&signer1));
+    assert!(signers.contains(&signer2));
+    assert_eq!(threshold, 2);
+}
+
+#[test]
+fn test_clear_multisig_admin_resets_to_defaults() {
+    let (env, _admin, _whitelister, client) = setup();
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+
+    client.set_multisig_admin(
+        &soroban_sdk::vec![&env, signer1, signer2],
+        &2u32,
+    );
+
+    // Confirm set worked
+    let (_, threshold_before) = client.get_multisig_admin();
+    assert_eq!(threshold_before, 2);
+
+    client.clear_multisig_admin();
+
+    let (signers, threshold) = client.get_multisig_admin();
+    assert_eq!(signers.len(), 0);
+    assert_eq!(threshold, 0);
+}
