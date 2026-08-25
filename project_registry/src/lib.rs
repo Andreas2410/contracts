@@ -773,6 +773,7 @@ impl ProjectRegistry {
     /// Release all collateral of `token` back to the project owner.
     /// Allowed only after the project has matured or was never funded.
     pub fn release_collateral(env: Env, project_id: u32, caller: Address, token: Address) {
+        require_not_paused(&env);
         require_current_state(&env);
         caller.require_auth();
         let project: ProjectData = env
@@ -1117,6 +1118,8 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
 }
 
 fn liquidate_collateral_internal(env: Env, project_id: u32, token: Address, recipient: Address) {
+    require_not_paused(&env);
+    require_current_state(&env);
     let project: ProjectData = env
         .storage()
         .persistent()

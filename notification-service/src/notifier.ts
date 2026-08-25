@@ -5,6 +5,10 @@ import { Store } from "./db";
 /** Upper bound on tracked dedup keys, so long-running processes don't grow unbounded. */
 const MAX_TRACKED_NOTIFICATIONS = 5000;
 
+/** Upper bound on a single webhook delivery, so one unresponsive investor-supplied
+ * endpoint can't stall the sequential notification loop for everyone behind it (#443). */
+const WEBHOOK_TIMEOUT_MS = 10_000;
+
 export class Notifier {
   private config: ServiceConfig;
   private store: Store;
@@ -129,6 +133,7 @@ export class Notifier {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
     });
 
     if (!response.ok) {
