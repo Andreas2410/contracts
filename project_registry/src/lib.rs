@@ -22,6 +22,8 @@ const STATE_VERSION: u32 = 1;
 const BASE_RATE_BPS: u32 = 1_000;
 /// Maximum rate discount in basis points earned by a perfect-score project (5 %) (#129).
 const MAX_DISCOUNT_BPS: u32 = 500;
+/// Upper bound for credit-quality and green-impact score inputs (#386).
+const MAX_SCORE: u32 = 100;
 const MAX_MULTISIG_SIGNERS: u32 = 10;
 const MAX_SCORE_HISTORY: u32 = 50;
 
@@ -482,8 +484,9 @@ impl ProjectRegistry {
         events::project_certified(&env, project_id, status);
     }
 
-    /// Mark a project as settled once its maturity date has passed (#127).
-    /// Returns true if the project is mature and was settled, false if already past.
+    /// Check whether a project's maturity date has been reached (#127).
+    /// Returns true if the current ledger timestamp is on or after the maturity
+    /// date, false otherwise. Projects with no maturity date (0) are never mature.
     pub fn is_mature(env: Env, project_id: u32) -> bool {
         require_current_state(&env);
         let project: ProjectData = env
@@ -699,7 +702,7 @@ impl ProjectRegistry {
     #[only_owner]
     pub fn update_credit_quality_score(env: Env, project_id: u32, credit_quality: u32) {
         require_not_paused(&env);
-        if credit_quality > 100 {
+        if credit_quality > MAX_SCORE {
             panic_with_error!(&env, RegistryError::CreditQualityOutOfRange);
         }
         let mut project: ProjectData = env
@@ -899,7 +902,7 @@ impl ProjectRegistry {
         require_not_paused(&env);
         require_current_state(&env);
         caller.require_auth();
-        if score > 100 {
+        if score > MAX_SCORE {
             panic_with_error!(&env, RegistryError::ReputationOutOfRange);
         }
         let whitelister: Address = env.storage().instance().get(&DataKey::Whitelister).unwrap();
@@ -1111,7 +1114,7 @@ fn update_impact_scores_batch_internal(env: Env, updates: Vec<(u32, u32, u32)>) 
 }
 
 fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, green_impact: u32) {
-    if credit_quality > 100 || green_impact > 100 {
+    if credit_quality > MAX_SCORE || green_impact > MAX_SCORE {
         panic_with_error!(&env, RegistryError::ScoresOutOfRange);
     }
     let mut project: ProjectData = env

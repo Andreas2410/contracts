@@ -68,6 +68,13 @@ const YIELD_SCALE: i128 = 1_000_000_000_000_000_000; // 1e18
 /// 50 bps = 0.5 % of deposit amount.
 const INSURANCE_PREMIUM_BPS: i128 = 50;
 
+/// Basis-point denominator (100 bps = 1 whole unit). Used to convert bps
+/// fractions into decimal multipliers throughout the vault (#387).
+const BPS_SCALE: i128 = 10_000;
+
+/// Upper bound for credit-quality and green-impact score inputs (#386).
+const MAX_SCORE: u32 = 100;
+
 /// Maximum total supply of HBS shares (7 decimals) (#20).
 ///
 /// The vault's deposit mechanism already naturally limits supply based on USDC
@@ -414,7 +421,7 @@ impl InvestmentVault {
         check_max_transaction_amount(&env, usdc_amount);
 
         // Deduct insurance premium before share calculation (#135)
-        let premium = usdc_amount * INSURANCE_PREMIUM_BPS / 10_000;
+        let premium = usdc_amount * INSURANCE_PREMIUM_BPS / BPS_SCALE;
 
         // Deduct optional management fee (#7).
         // Applies a dynamic (volume-tiered) rate when one is configured (#39):
@@ -435,7 +442,7 @@ impl InvestmentVault {
             volume_threshold,
             volume_tier_bps,
         );
-        let fee_amount = usdc_amount * (effective_fee_bps as i128) / 10_000;
+        let fee_amount = usdc_amount * (effective_fee_bps as i128) / BPS_SCALE;
 
         let investable = usdc_amount - premium - fee_amount;
 
@@ -522,7 +529,7 @@ impl InvestmentVault {
     }
 
     /// Return the vault utilization in basis points:
-    /// `total_investments * 10_000 / (liquid_usdc + total_investments)`.
+    /// `total_investments * BPS_SCALE / (liquid_usdc + total_investments)`.
     /// Returns 0 when no capital is deployed. Does not call into the registry (#45).
     pub fn get_utilization_bps(env: Env) -> u32 {
         require_current_state(&env);
@@ -538,7 +545,7 @@ impl InvestmentVault {
         if total_actual == 0 {
             return 0;
         }
-        (total_investments * 10_000 / total_actual) as u32
+        (total_investments * BPS_SCALE / total_actual) as u32
     }
 
     /// Return a consolidated operational-status snapshot for monitoring tools (#77).
@@ -853,7 +860,7 @@ impl InvestmentVault {
         let share_of_pool_bps = if total_shares == 0 {
             0
         } else {
-            shares * 10_000 / total_shares
+            shares * BPS_SCALE / total_shares
         };
 
         let total_deposited: i128 = env
@@ -1021,7 +1028,7 @@ impl InvestmentVault {
     #[only_owner]
     pub fn set_funding_thresholds(env: Env, min_credit_quality: u32, min_green_impact: u32) {
         require_current_state(&env);
-        if min_credit_quality > 100 || min_green_impact > 100 {
+        if min_credit_quality > MAX_SCORE || min_green_impact > MAX_SCORE {
             panic_with_error!(&env, VaultError::ThresholdOutOfRange);
         }
         env.storage()
@@ -1542,7 +1549,7 @@ impl InvestmentVault {
         initiator.require_auth();
 
         let fee_bps = Self::flash_loan_fee(env.clone()) as i128;
-        let fee = amount * fee_bps / 10000;
+        let fee = amount * fee_bps / BPS_SCALE;
 
         let vault = env.current_contract_address();
 
