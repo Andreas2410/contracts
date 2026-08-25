@@ -115,3 +115,21 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(from: Address, to: Address, amount: i128)`
 - **Description**: Emitted when carbon credits are transferred between accounts.
 - **Emitted by**: [`transfer_carbon_credits`](INTERFACE.md#investmentvault)
+
+### `compliance_event_recorded`
+- **Topics**: `["vault", "compliance_event_recorded"]`
+- **Data**: `(seq: u64, event_type: String)`
+- **Description**: Emitted when a compliance event is recorded to the on-chain audit trail for regulatory reporting.
+- **Emitted by**: [`record_compliance_event`](INTERFACE.md#investmentvault)
+
+### `reporting_snapshot_taken`
+- **Topics**: `["vault", "reporting_snapshot_taken"]`
+- **Data**: `(timestamp: u64)`
+- **Description**: Emitted when a periodic snapshot of the vault's key metrics is taken for regulatory reporting.
+- **Emitted by**: [`take_reporting_snapshot`](INTERFACE.md#investmentvault)
+
+### `max_transaction_amount_set`
+- **Topics**: `["vault", "max_transaction_amount_set"]`
+- **Data**: `(amount: i128)`
+- **Description**: Emitted when the maximum single-transaction amount compliance limit is updated.
+- **Emitted by**: [`set_max_transaction_amount`](INTERFACE.md#investmentvault)
