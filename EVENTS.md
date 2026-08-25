@@ -74,6 +74,24 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Description**: Emitted when a previously queued redemption (see `withdraw_queued`) is settled.
 - **Emitted by**: [`claim`](INTERFACE.md#investmentvault)
 
+### `paused`
+- **Topics**: `["vault", "paused"]`
+- **Data**: — (no fields)
+- **Description**: Emitted when the vault's circuit breaker is engaged, blocking all state-mutating user operations.
+- **Emitted by**: [`pause`](INTERFACE.md#investmentvault), [`emergency_pause`](INTERFACE.md#investmentvault)
+
+### `unpaused`
+- **Topics**: `["vault", "unpaused"]`
+- **Data**: — (no fields)
+- **Description**: Emitted when the vault's circuit breaker is disengaged, resuming normal operation.
+- **Emitted by**: [`unpause`](INTERFACE.md#investmentvault), [`emergency_unpause`](INTERFACE.md#investmentvault)
+
+### `emergency_admin_changed`
+- **Topics**: `["vault", "emergency_admin_changed"]`
+- **Data**: `(new_emergency_admin: Option<Address>)`
+- **Description**: Emitted when the admin sets or clears the address authorised to pause/unpause the vault in an emergency without going through the owner.
+- **Emitted by**: [`set_emergency_admin`](INTERFACE.md#investmentvault)
+
 ### `project_funded`
 - **Topics**: `["vault", "project_funded"]`
 - **Data**: `(project_id: u32, amount: i128, recipient: Address)`
