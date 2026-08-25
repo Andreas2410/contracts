@@ -169,3 +169,9 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(old_registry: Address, new_registry: Address)`
 - **Description**: Emitted when the admin replaces the linked ProjectRegistry contract.
 - **Emitted by**: [`set_registry`](INTERFACE.md#investmentvault)
+
+### `utilization_warning`
+- **Topics**: `["vault", "utilization_warning"]`
+- **Data**: `(utilization_bps: u32)`
+- **Description**: Emitted during `withdraw()` whenever vault utilization crosses the high-utilization threshold (`UTIL_WARN_BPS`, 70%). Off-chain monitors should alert operators to consider replenishing liquidity.
+- **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
