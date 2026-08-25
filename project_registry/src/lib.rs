@@ -31,6 +31,14 @@ const MAX_SCORE_HISTORY: u32 = 50;
 /// Prevents excessively large transactions that could exceed ledger resource limits.
 const MAX_BATCH_SCORE_SIZE: u32 = 20;
 
+/// Maximum number of entries in a single compact_storage call (#332).
+/// Mirrors MAX_BATCH_SCORE_SIZE to prevent unbounded O(n*m) iteration.
+const MAX_COMPACT_STORAGE_SIZE: u32 = 20;
+
+/// Maximum voting duration in seconds — 30 days (#332).
+/// Prevents overflow in voting_ends_at computation and rejects unreasonably long proposals.
+const MAX_VOTING_PERIOD: u64 = 30 * 86_400;
+
 mod events;
 mod logic;
 mod storage;
@@ -595,6 +603,9 @@ impl ProjectRegistry {
         if voting_duration_secs < MIN_VOTING_PERIOD {
             panic_with_error!(&env, RegistryError::VotingPeriodTooShort);
         }
+        if voting_duration_secs > MAX_VOTING_PERIOD {
+            panic_with_error!(&env, RegistryError::VotingPeriodTooLong);
+        }
         if description.len() > MAX_PROPOSAL_DESCRIPTION_LEN {
             panic_with_error!(&env, RegistryError::ProposalDescriptionTooLong);
         }
@@ -1089,6 +1100,9 @@ impl ProjectRegistry {
     #[only_owner]
     pub fn compact_storage(env: Env, project_ids: Vec<u32>, tokens: Vec<Address>) -> u32 {
         require_current_state(&env);
+        if project_ids.len() > MAX_COMPACT_STORAGE_SIZE || tokens.len() > MAX_COMPACT_STORAGE_SIZE {
+            panic_with_error!(&env, RegistryError::CompactStorageTooLarge);
+        }
         let mut removed: u32 = 0;
         for pid in project_ids.iter() {
             for token in tokens.iter() {

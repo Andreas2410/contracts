@@ -63,6 +63,19 @@ export class Notifier {
         continue;
       }
 
+      // Cross-restart dedup: check the persistent DB in case the in-memory
+      // Set was cleared by a process restart (#335).
+      if (
+        this.store.hasBeenNotified(
+          addr,
+          event.project_id,
+          event.ledger,
+        )
+      ) {
+        this.rememberRecipient(recipientKey);
+        continue;
+      }
+
       const subject = `[Heliobond] Score change for project #${event.project_id}`;
       const text = this.formatEmailText(event, addr);
 
