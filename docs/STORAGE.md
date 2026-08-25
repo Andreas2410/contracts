@@ -323,6 +323,26 @@ Cross-contract calls are the most expensive single operation in Soroban. Each ca
 | `claim_yield` | `YieldPerShareAccum`, `YieldDebt(from)`, `UsdcSac`, `CachedTotalAssets` | `YieldDebt(from)`, `CachedTotalAssets` |
 | `get_portfolio` | `YieldPerShareAccum`, `YieldDebt(addr)`, `TotalDeposited(addr)` | — |
 | `claim_insurance` | `InsuranceFund`, `InsuranceClaimed(id)` | `InsuranceFund`, `InsuranceClaimed(id)` |
+| `deposit_collateral` | `Project(id)`, `Collateral(id, token)` | `Collateral(id, token)` |
+| `release_collateral` | `Project(id)`, `Collateral(id, token)` | removes `Collateral(id, token)` |
+| `liquidate_collateral` / `liquidate_collateral_approved` | `Project(id)`, `Collateral(id, token)` | removes `Collateral(id, token)` |
+| `set_creator_reputation` | `Whitelister` | `CreatorReputation(creator)` |
+| `batch_fund_projects` | Same keys as `fund_project`, once per funding entry (+ 1 cross-contract `get_project` per entry); also reads/writes nothing extra for the duplicate-ID check, which is held in a local `Vec` for the call's duration | Same keys as `fund_project`, once per funding entry |
+| `bridge_mint` | `Bridge` | `LastDeposit(to)` (via `lock_deposit`) |
+| `bridge_burn` | — | — (burns HBS shares via the token base's own storage, outside `VaultKey`) |
+| `initiate_bridge_transfer` | `WormholeCore` | — (burns HBS shares) + 1 cross-contract `publish_message` to the Wormhole Core contract |
+| `complete_bridge_transfer` | `WormholeCore`, `TrustedEmitter(chain_id, emitter)`, `ConsumedVaa(digest)` | `ConsumedVaa(digest)`, `LastDeposit(to)` (via `lock_deposit`) + 1 cross-contract `verify_vaa` to the Wormhole Core contract |
+| `execute_flash_loan` | `FlashLoanFeeBps` (via `flash_loan_fee`) | — (mints then burns HBS shares transiently via the token base's own storage) + 1 cross-contract callback to the borrower |
+| `set_carbon_oracle` | `CarbonOracle` | `CarbonOracle` (skipped if no-op) |
+| `set_carbon_credit_price` | `CarbonOracle`, `CarbonCreditPrice` | `CarbonCreditPrice` (skipped if no-op) |
+| `calculate_carbon_credits` | `Registry` + 1 cross-contract `get_project` | — (pure calculation, no storage written) |
+| `issue_carbon_credits` | `Registry` (via `calculate_carbon_credits`) + 1 cross-contract `get_project`, `CarbonCreditBalance(to)` | `CarbonCreditBalance(to)` |
+| `transfer_carbon_credits` | `CarbonCreditBalance(from)`, `CarbonCreditBalance(to)` | `CarbonCreditBalance(from)`, `CarbonCreditBalance(to)` |
+| `set_max_transaction_amount` | `MaxTransactionAmount` | `MaxTransactionAmount` (skipped if no-op) |
+| `record_compliance_event` | `ComplianceEventCounter` | `ComplianceEvent(seq)`, `ComplianceEventCounter`; also removes the oldest `ComplianceEvent(prune)` once the count exceeds `MAX_COMPLIANCE_EVENTS` |
+| `take_reporting_snapshot` | `TotalInvestments` | `ReportingSnapshot` |
+| `compact_storage` | `Registry` + 1 cross-contract `total_projects`, then `ProjectInvestment(id)` for each project ID | removes `ProjectInvestment(id)` for each zero-value entry found |
+| `set_multisig_admin` | — | `MultiSigSigners`, `MultiSigThreshold` |
 
 ---
 
