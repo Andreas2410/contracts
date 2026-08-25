@@ -91,3 +91,27 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(fee_bps: i128)`
 - **Description**: Emitted when the flash loan fee, in basis points, is updated.
 - **Emitted by**: [`set_flash_loan_fee`](INTERFACE.md#investmentvault)
+
+### `carbon_oracle_set`
+- **Topics**: `["vault", "carbon_oracle_set"]`
+- **Data**: `(oracle: Address)`
+- **Description**: Emitted when the carbon credit price oracle address is configured.
+- **Emitted by**: [`set_carbon_oracle`](INTERFACE.md#investmentvault)
+
+### `carbon_credit_price_set`
+- **Topics**: `["vault", "carbon_credit_price_set"]`
+- **Data**: `(price: i128)`
+- **Description**: Emitted when the carbon credit price is updated.
+- **Emitted by**: [`set_carbon_credit_price`](INTERFACE.md#investmentvault)
+
+### `carbon_credits_calculated`
+- **Topics**: `["vault", "carbon_credits_calculated"]`
+- **Data**: `(project_id: u32, amount_invested: i128, credits: i128)`
+- **Description**: Emitted when carbon credits are calculated and issued for an investment in a project.
+- **Emitted by**: [`calculate_carbon_credits`](INTERFACE.md#investmentvault)
+
+### `carbon_credits_transferred`
+- **Topics**: `["vault", "carbon_credits_transferred"]`
+- **Data**: `(from: Address, to: Address, amount: i128)`
+- **Description**: Emitted when carbon credits are transferred between accounts.
+- **Emitted by**: [`transfer_carbon_credits`](INTERFACE.md#investmentvault)
