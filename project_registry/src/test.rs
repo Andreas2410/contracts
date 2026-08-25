@@ -159,6 +159,43 @@ fn test_multisig_update_impact_score_approved() {
     assert_eq!(project.green_impact, 90);
 }
 
+// ── Issue #437: update_impact_scores_batch must stay reachable once multisig is enabled ──
+
+#[test]
+fn test_update_scores_batch_approved_after_multisig_enabled() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    let signer3 = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmBatchApproved"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    client.set_multisig_admin(
+        &soroban_sdk::vec![&env, signer1.clone(), signer2.clone(), signer3],
+        &2u32,
+    );
+
+    // update_impact_scores_batch itself is now permanently blocked; only the
+    // approvals path works.
+    let updates = soroban_sdk::vec![&env, (id, 80u32, 90u32)];
+    assert!(client.try_update_impact_scores_batch(&updates).is_err());
+
+    client.update_scores_batch_approved(
+        &updates,
+        &soroban_sdk::vec![&env, signer1, signer2],
+    );
+
+    let project = client.get_project(&id);
+    assert_eq!(project.credit_quality, 80);
+    assert_eq!(project.green_impact, 90);
+}
+
 #[test]
 #[should_panic]
 fn test_multisig_update_impact_score_rejects_insufficient_approvals() {
