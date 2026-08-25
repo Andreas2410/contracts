@@ -175,3 +175,21 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(utilization_bps: u32)`
 - **Description**: Emitted during `withdraw()` whenever vault utilization crosses the high-utilization threshold (`UTIL_WARN_BPS`, 70%). Off-chain monitors should alert operators to consider replenishing liquidity.
 - **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
+
+### `bridge_set`
+- **Topics**: `["vault", "bridge_set"]`
+- **Data**: `(bridge: Address)`
+- **Description**: Emitted when the admin configures the direct (non-Wormhole) bridge address authorised to mint/burn vault shares.
+- **Emitted by**: [`set_bridge`](INTERFACE.md#investmentvault)
+
+### `bridge_mint`
+- **Topics**: `["vault", "bridge_mint"]`
+- **Data**: `(to: Address, amount: i128)`
+- **Description**: Emitted when the configured direct bridge mints shares to `to` for an inbound cross-chain transfer.
+- **Emitted by**: [`bridge_mint`](INTERFACE.md#investmentvault)
+
+### `bridge_burn`
+- **Topics**: `["vault", "bridge_burn"]`
+- **Data**: `(from: Address, amount: i128)`
+- **Description**: Emitted when the configured direct bridge burns shares from `from` for an outbound cross-chain transfer.
+- **Emitted by**: [`bridge_burn`](INTERFACE.md#investmentvault)
