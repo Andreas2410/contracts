@@ -348,3 +348,66 @@ describe("GET /metrics", () => {
     expect(res.status).toBe(404);
   });
 });
+
+// ── Issue #394: GET /preferences returns correct data ────────────────────────
+
+describe("GET /preferences response", () => {
+  let store: Store;
+
+  afterEach(() => {
+    store?.close();
+  });
+
+  it("returns all upserted preferences in most-recently-updated-first order", async () => {
+    store = makeStore();
+
+    // Upsert two preferences with different updated_at timestamps.
+    store.upsertPreference({
+      investor_address: "GINVESTOR",
+      email: "alice@example.invalid",
+      webhook_url: "https://example.invalid/alice",
+      enabled: true,
+      min_delta: 5,
+      updated_at: "2025-01-01T00:00:00.000Z",
+    });
+    store.upsertPreference({
+      investor_address: "GOTHER",
+      email: "bob@example.invalid",
+      enabled: true,
+      min_delta: 2,
+      updated_at: "2025-06-01T00:00:00.000Z",
+    });
+
+    const app = createApi(store);
+    const res = await request(app).get("/preferences");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+
+    // Most recently updated first (GOTHER was updated later).
+    expect(res.body[0].investor_address).toBe("GOTHER");
+    expect(res.body[1].investor_address).toBe("GINVESTOR");
+
+    // Verify fields.
+    const alice = res.body[1];
+    expect(alice.email).toBe("alice@example.invalid");
+    expect(alice.webhook_url).toBe("https://example.invalid/alice");
+    expect(alice.enabled).toBe(true);
+    expect(alice.min_delta).toBe(5);
+
+    const bob = res.body[0];
+    expect(bob.email).toBe("bob@example.invalid");
+    expect(bob.enabled).toBe(true);
+    expect(bob.min_delta).toBe(2);
+  });
+
+  it("returns an empty array when no preferences exist", async () => {
+    store = makeStore();
+    const app = createApi(store);
+
+    const res = await request(app).get("/preferences");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+});

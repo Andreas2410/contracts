@@ -280,3 +280,52 @@ describe("Notifier email channel", () => {
     expect(store.recordNotification).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Issue #395: min_delta threshold filtering ────────────────────────────────
+
+describe("Notifier min_delta threshold filtering", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("suppresses notification when min_delta exceeds the event's maxDelta", async () => {
+    const highDelta: NotificationPreference = {
+      ...preference,
+      min_delta: 20, // default event has maxDelta = 10
+    };
+    const store = {
+      getPreference: vi.fn(() => highDelta),
+      recordNotification: vi.fn(),
+    } as unknown as Store;
+
+    const notifier = new Notifier(config, store);
+    const event = makeEvent(); // maxDelta = 10
+
+    await notifier.notifyInvestors(event, [preference.investor_address]);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.recordNotification).not.toHaveBeenCalled();
+  });
+
+  it("sends notification when maxDelta equals min_delta (boundary: < not <=)", async () => {
+    const boundaryPref: NotificationPreference = {
+      ...preference,
+      min_delta: 10, // default event has maxDelta = 10
+    };
+    const store = {
+      getPreference: vi.fn(() => boundaryPref),
+      recordNotification: vi.fn(),
+    } as unknown as Store;
+
+    const notifier = new Notifier(config, store);
+    const event = makeEvent(); // maxDelta = 10
+
+    await notifier.notifyInvestors(event, [preference.investor_address]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(store.recordNotification).toHaveBeenCalledTimes(1);
+  });
+});

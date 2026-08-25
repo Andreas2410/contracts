@@ -3129,3 +3129,103 @@ fn test_flash_loan_fails_without_repayment() {
         &soroban_sdk::Bytes::new(&s.env),
     );
 }
+
+// ── Issue #392: get_portfolio and insurance_fund_balance test coverage ────────
+
+#[test]
+fn test_get_portfolio_after_single_deposit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let amount = 1_000_0000000i128; // 1000 USDC
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, amount);
+    let shares = s.vault_client.deposit(&investor, &amount);
+
+    let portfolio = s.vault_client.get_portfolio(&investor);
+
+    // Shares match what deposit returned.
+    assert_eq!(portfolio.shares, shares);
+    // USDC value equals shares 1:1 on first deposit (no yield accrued).
+    assert_eq!(portfolio.usdc_value, shares);
+    // No yield has accrued yet.
+    assert_eq!(portfolio.claimable_yield, 0);
+    // Sole investor owns 100% of the pool.
+    assert_eq!(portfolio.share_of_pool_bps, 10_000);
+    // Lifetime deposits equal the deposit amount.
+    assert_eq!(portfolio.total_deposited, amount);
+}
+
+#[test]
+fn test_get_portfolio_share_of_pool_with_two_investors() {
+    let s = setup();
+    let alice = Address::generate(&s.env);
+    let bob = Address::generate(&s.env);
+    let amount = 500_0000000i128; // 500 USDC each
+
+    mint_usdc(&s.env, &s.usdc_sac, &alice, amount);
+    s.vault_client.deposit(&alice, &amount);
+
+    mint_usdc(&s.env, &s.usdc_sac, &bob, amount);
+    s.vault_client.deposit(&bob, &amount);
+
+    let alice_portfolio = s.vault_client.get_portfolio(&alice);
+    let bob_portfolio = s.vault_client.get_portfolio(&bob);
+
+    // Each investor owns 50% of the pool.
+    assert_eq!(alice_portfolio.share_of_pool_bps, 5_000);
+    assert_eq!(bob_portfolio.share_of_pool_bps, 5_000);
+    assert_eq!(alice_portfolio.shares, bob_portfolio.shares);
+}
+
+#[test]
+fn test_get_portfolio_zero_for_nondepositor() {
+    let s = setup();
+    let stranger = Address::generate(&s.env);
+
+    let portfolio = s.vault_client.get_portfolio(&stranger);
+
+    assert_eq!(portfolio.shares, 0);
+    assert_eq!(portfolio.usdc_value, 0);
+    assert_eq!(portfolio.claimable_yield, 0);
+    assert_eq!(portfolio.share_of_pool_bps, 0);
+    assert_eq!(portfolio.total_deposited, 0);
+}
+
+#[test]
+fn test_insurance_fund_balance_starts_at_zero() {
+    let s = setup();
+    assert_eq!(s.vault_client.insurance_fund_balance(), 0);
+}
+
+#[test]
+fn test_insurance_fund_balance_increases_after_deposit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let amount = 1_000_0000000i128; // 1000 USDC
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, amount);
+    s.vault_client.deposit(&investor, &amount);
+
+    let expected_premium = amount * 50 / 10_000; // INSURANCE_PREMIUM_BPS = 50
+    assert_eq!(s.vault_client.insurance_fund_balance(), expected_premium);
+}
+
+#[test]
+fn test_insurance_fund_accumulates_across_deposits() {
+    let s = setup();
+    let alice = Address::generate(&s.env);
+    let bob = Address::generate(&s.env);
+
+    let amount_a = 1_000_0000000i128; // 1000 USDC
+    mint_usdc(&s.env, &s.usdc_sac, &alice, amount_a);
+    s.vault_client.deposit(&alice, &amount_a);
+
+    let premium_a = amount_a * 50 / 10_000;
+
+    let amount_b = 2_000_0000000i128; // 2000 USDC
+    mint_usdc(&s.env, &s.usdc_sac, &bob, amount_b);
+    s.vault_client.deposit(&bob, &amount_b);
+
+    let premium_b = amount_b * 50 / 10_000;
+    assert_eq!(s.vault_client.insurance_fund_balance(), premium_a + premium_b);
+}
