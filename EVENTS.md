@@ -145,3 +145,27 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(amount: i128)`
 - **Description**: Emitted when the maximum single-transaction amount compliance limit is updated.
 - **Emitted by**: [`set_max_transaction_amount`](INTERFACE.md#investmentvault)
+
+### `management_fee_set`
+- **Topics**: `["vault", "management_fee_set"]`
+- **Data**: `(recipient: Address, fee_bps: u32)`
+- **Description**: Emitted when the admin updates the management fee configuration.
+- **Emitted by**: [`set_management_fee`](INTERFACE.md#investmentvault)
+
+### `trading_enabled`
+- **Topics**: `["vault", "trading_enabled"]`
+- **Data**: `(enabled: bool)`
+- **Description**: Emitted when the admin enables secondary market trading for HBS shares.
+- **Emitted by**: [`enable_secondary_trading`](INTERFACE.md#investmentvault)
+
+### `funding_thresholds_set`
+- **Topics**: `["vault", "funding_thresholds_set"]`
+- **Data**: `(min_credit_quality: u32, min_green_impact: u32)`
+- **Description**: Emitted when the admin updates the minimum funding score thresholds.
+- **Emitted by**: [`set_funding_thresholds`](INTERFACE.md#investmentvault)
+
+### `registry_changed`
+- **Topics**: `["vault", "registry_changed"]`
+- **Data**: `(old_registry: Address, new_registry: Address)`
+- **Description**: Emitted when the admin replaces the linked ProjectRegistry contract.
+- **Emitted by**: [`set_registry`](INTERFACE.md#investmentvault)
