@@ -50,6 +50,48 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 
 ## Investment Vault Events
 
+### `deposit`
+- **Topics**: `["vault", "deposit"]`
+- **Data**: `(from: Address, usdc_amount: i128, shares_minted: i128)`
+- **Description**: Emitted when an investor deposits USDC and receives newly minted vault shares.
+- **Emitted by**: [`deposit`](INTERFACE.md#investmentvault)
+
+### `withdraw`
+- **Topics**: `["vault", "withdraw"]`
+- **Data**: `(from: Address, shares_burned: i128, usdc_returned: i128)`
+- **Description**: Emitted when an investor burns shares and receives USDC immediately (sufficient liquid USDC was available). See `withdraw_queued` for the insufficient-liquidity path.
+- **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
+
+### `withdraw_queued`
+- **Topics**: `["vault", "withdraw_queued"]`
+- **Data**: `(from: Address, shares_burned: i128, usdc_owed: i128)`
+- **Description**: Emitted when `withdraw` can't pay out immediately because liquid USDC is insufficient. Shares are burned right away and the USDC payout is enqueued in FIFO order; call `claim()` once liquidity is restored.
+- **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
+
+### `withdraw_claimed`
+- **Topics**: `["vault", "withdraw_claimed"]`
+- **Data**: `(to: Address, usdc_paid: i128, claim_index: u64)`
+- **Description**: Emitted when a previously queued redemption (see `withdraw_queued`) is settled.
+- **Emitted by**: [`claim`](INTERFACE.md#investmentvault)
+
+### `paused`
+- **Topics**: `["vault", "paused"]`
+- **Data**: — (no fields)
+- **Description**: Emitted when the vault's circuit breaker is engaged, blocking all state-mutating user operations.
+- **Emitted by**: [`pause`](INTERFACE.md#investmentvault), [`emergency_pause`](INTERFACE.md#investmentvault)
+
+### `unpaused`
+- **Topics**: `["vault", "unpaused"]`
+- **Data**: — (no fields)
+- **Description**: Emitted when the vault's circuit breaker is disengaged, resuming normal operation.
+- **Emitted by**: [`unpause`](INTERFACE.md#investmentvault), [`emergency_unpause`](INTERFACE.md#investmentvault)
+
+### `emergency_admin_changed`
+- **Topics**: `["vault", "emergency_admin_changed"]`
+- **Data**: `(new_emergency_admin: Option<Address>)`
+- **Description**: Emitted when the admin sets or clears the address authorised to pause/unpause the vault in an emergency without going through the owner.
+- **Emitted by**: [`set_emergency_admin`](INTERFACE.md#investmentvault)
+
 ### `project_funded`
 - **Topics**: `["vault", "project_funded"]`
 - **Data**: `(project_id: u32, amount: i128, recipient: Address)`
