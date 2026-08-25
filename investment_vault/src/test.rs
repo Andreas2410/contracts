@@ -1417,6 +1417,101 @@ fn test_high_utilization_withdrawal_emits_warning_event() {
     );
 }
 
+// ── Issue #407: the graduated withdrawal limit's rejection was never tested ─────
+// (only the accompanying UtilizationWarning event was, above)
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_withdraw_rejects_above_high_tier_limit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 10_000_0000000i128);
+    s.vault_client.deposit(&investor, &10_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    // Fund 9500 USDC: liquid = 500, utilization = 95% (>= UTIL_HIGH_BPS/90%).
+    // max_withdraw = liquid * HIGH_TIER_PCT (10%) = 50 USDC.
+    s.vault_client.fund_project(&project_id, &9_500_0000000i128);
+    assert!(s.vault_client.get_utilization_bps() >= 9_000);
+
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Request 100 USDC (>= MIN_WITHDRAW, but well above the 50 USDC cap).
+    s.vault_client.withdraw(&investor, &100_0000000i128, &0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_withdraw_rejects_above_med_tier_limit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 10_000_0000000i128);
+    s.vault_client.deposit(&investor, &10_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    // Fund 8000 USDC: liquid = 2000, utilization = 80% (>= UTIL_MED_BPS/70%, < 90%).
+    // max_withdraw = liquid * MED_TIER_PCT (25%) = 500 USDC.
+    s.vault_client.fund_project(&project_id, &8_000_0000000i128);
+    let util = s.vault_client.get_utilization_bps();
+    assert!((7_000..9_000).contains(&util));
+
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Request 600 USDC — above the 500 USDC cap.
+    s.vault_client.withdraw(&investor, &600_0000000i128, &0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_withdraw_rejects_above_low_tier_limit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 10_000_0000000i128);
+    s.vault_client.deposit(&investor, &10_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    // Fund 6000 USDC: liquid = 4000, utilization = 60% (>= UTIL_LOW_BPS/50%, < 70%).
+    // max_withdraw = liquid * LOW_TIER_PCT (50%) = 2000 USDC.
+    s.vault_client.fund_project(&project_id, &6_000_0000000i128);
+    let util = s.vault_client.get_utilization_bps();
+    assert!((5_000..7_000).contains(&util));
+
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Request 2500 USDC — above the 2000 USDC cap.
+    s.vault_client.withdraw(&investor, &2_500_0000000i128, &0);
+}
+
 // ── Issue #47: minimum funding thresholds ─────────────────────────────────────
 
 #[test]
