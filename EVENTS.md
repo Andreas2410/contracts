@@ -235,3 +235,33 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(from: Address, amount: i128)`
 - **Description**: Emitted when the configured direct bridge burns shares from `from` for an outbound cross-chain transfer.
 - **Emitted by**: [`bridge_burn`](INTERFACE.md#investmentvault)
+
+### `ownership_transferred`
+- **Topics**: `["vault", "ownership_transferred"]`
+- **Data**: `(old_owner: Address, new_owner: Address)`
+- **Description**: Emitted when the admin transfers contract ownership.
+- **Emitted by**: [`transfer_ownership`](INTERFACE.md#investmentvault)
+
+### `withdrawal_window_set`
+- **Topics**: `["vault", "withdrawal_window_set"]`
+- **Data**: `(ledgers: u32)`
+- **Description**: Emitted when the admin changes the withdrawal sliding-window length.
+- **Emitted by**: [`set_withdrawal_window`](INTERFACE.md#investmentvault)
+
+### `funding_round_started`
+- **Topics**: `["vault", "funding_round_started"]`
+- **Data**: — (no fields)
+- **Description**: Emitted when the admin opens a funding round.
+- **Emitted by**: [`start_funding_round`](INTERFACE.md#investmentvault)
+
+### `funding_round_ended`
+- **Topics**: `["vault", "funding_round_ended"]`
+- **Data**: — (no fields)
+- **Description**: Emitted when the admin closes a funding round.
+- **Emitted by**: [`end_funding_round`](INTERFACE.md#investmentvault)
+
+### `investment_cap_set`
+- **Topics**: `["vault", "investment_cap_set"]`
+- **Data**: `(cap: i128)`
+- **Description**: Emitted when the admin changes the per-project investment cap.
+- **Emitted by**: [`set_max_investment_per_project`](INTERFACE.md#investmentvault)
