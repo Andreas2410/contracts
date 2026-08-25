@@ -37,8 +37,8 @@ mod storage;
 mod types;
 
 pub use types::{
-    ArchiveSummary, CertificationStatus, DataKey, HealthStatus, ProjectData, Proposal,
-    RegistryError, ScoreHistoryEntry,
+    ArchiveSummary, CertificationStatus, DataKey, HealthStatus, ProjectData, ProjectStatus,
+    Proposal, RegistryError, ScoreHistoryEntry,
 };
 
 /// Minimum voting period in seconds (~1 day at 5s/ledger, ≈ 17280 ledgers) (#134).
@@ -46,14 +46,6 @@ const MIN_VOTING_PERIOD: u64 = 86_400;
 
 /// Minimum oracle update interval in seconds (1 hour).
 const MIN_UPDATE_INTERVAL: u64 = 3600;
-
-/// Minimum remaining TTL in ledgers before extending persistent storage rent (#388).
-/// At 5 s/ledger this equals ~1 day (17 280 ledgers).
-const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 17_280;
-
-/// Target TTL in ledgers after extension (#388).
-/// At 5 s/ledger this equals ~30 days (518 400 ledgers).
-const TTL_EXTEND_TO_LEDGERS: u32 = 518_400;
 
 pub const CONTRACT_NAME: &str = "Project Registry";
 pub const CONTRACT_DESCRIPTION: &str = "Heliobond Project Registry";
@@ -121,9 +113,7 @@ impl ProjectRegistry {
         whitelister.require_auth();
         // Validation: Soroban Address types inherently prevent null/zero addresses,
         // fulfilling explicit validation requirements for account.
-        env.storage()
-            .persistent()
-            .set(&DataKey::Whitelist(account.clone()), &status);
+        storage::write_whitelist(&env, account.clone(), status);
         events::whitelist_set(&env, &account, status);
     }
 
@@ -141,11 +131,7 @@ impl ProjectRegistry {
         creator.require_auth();
         // Validation: Soroban Address types inherently prevent null/zero addresses,
         // fulfilling explicit validation requirements for creator.
-        let is_whitelisted: bool = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Whitelist(creator.clone()))
-            .unwrap_or(false);
+        let is_whitelisted: bool = storage::read_whitelist(&env, creator.clone());
         if !is_whitelisted {
             panic_with_error!(&env, RegistryError::NotWhitelisted);
         }
@@ -219,12 +205,7 @@ impl ProjectRegistry {
             metadata_hash: metadata_hash.clone(),
         };
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Project(project_id), &project);
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Project(project_id), TTL_EXTEND_THRESHOLD_LEDGERS, TTL_EXTEND_TO_LEDGERS); // Add rent check/extend
+        storage::write_project(&env, project_id, &project);
         env.storage()
             .instance()
             .set(&DataKey::ProjectCounter, &project_id);
@@ -237,10 +218,7 @@ impl ProjectRegistry {
     #[only_owner]
     pub fn archive_project(env: Env, project_id: u32) {
         require_current_state(&env);
-        let mut project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let mut project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
         if project.status == types::ProjectStatus::Archived {
@@ -248,10 +226,35 @@ impl ProjectRegistry {
         }
 
         project.status = types::ProjectStatus::Archived;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Project(project_id), &project);
+        storage::write_project(&env, project_id, &project);
         events::project_archived(&env, project_id);
+    }
+
+    /// Transition a project's lifecycle status to `Active`, `Funded`, or `Completed`. Admin-only (#329).
+    ///
+    /// Nothing in this contract advances `ProjectData::status` past `Pending` on
+    /// its own — this is the callable transition path until a real cross-contract
+    /// call from the vault on funding events lands (tracked separately). Cannot be
+    /// used to set or clear `Archived`; use `archive_project` for that, since
+    /// archived projects are otherwise immutable. Emits `ProjectStatusChanged`.
+    #[only_owner]
+    pub fn set_project_status(env: Env, project_id: u32, status: types::ProjectStatus) {
+        require_not_paused(&env);
+        require_current_state(&env);
+        let mut project: ProjectData = storage::read_project(&env, project_id)
+            .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+        if project.status == types::ProjectStatus::Archived
+            || status == types::ProjectStatus::Archived
+        {
+            panic_with_error!(&env, RegistryError::InvalidStatusTransition);
+        }
+        if project.status == status {
+            panic_with_error!(&env, RegistryError::ProjectStatusUnchanged);
+        }
+        let old_status = project.status.clone();
+        project.status = status.clone();
+        storage::write_project(&env, project_id, &project);
+        events::project_status_changed(&env, project_id, old_status, status);
     }
 
     /// Delete a project. Admin-only. Can only delete if no investments exist (#26).
@@ -260,10 +263,7 @@ impl ProjectRegistry {
     pub fn delete_project(env: Env, project_id: u32) {
         require_current_state(&env);
         // Verify project exists
-        let _project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let _project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
         // NOTE: In production, should verify no investments via vault.get_project_investment(project_id)
@@ -285,10 +285,7 @@ impl ProjectRegistry {
     #[only_owner]
     pub fn compact_archive(env: Env, project_id: u32) {
         require_current_state(&env);
-        let project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
         if project.status != types::ProjectStatus::Archived {
             panic_with_error!(&env, RegistryError::ProjectNotArchived);
@@ -323,9 +320,7 @@ impl ProjectRegistry {
     /// Return the `ProjectData` for `id`. Panics with `ProjectNotFound` if the ID is unknown.
     pub fn get_project(env: Env, id: u32) -> ProjectData {
         require_current_state(&env);
-        env.storage()
-            .persistent()
-            .get(&DataKey::Project(id))
+        storage::read_project(&env, id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound))
     }
 
@@ -335,11 +330,7 @@ impl ProjectRegistry {
     /// trustless proof the content matches what the creator committed to.
     pub fn verify_metadata_hash(env: Env, project_id: u32, candidate_hash: BytesN<32>) -> bool {
         require_current_state(&env);
-        if let Some(project) = env
-            .storage()
-            .persistent()
-            .get::<DataKey, ProjectData>(&DataKey::Project(project_id))
-        {
+        if let Some(project) = storage::read_project(&env, project_id) {
             return project.metadata_hash == candidate_hash;
         }
         // Project may have been compacted (#73) — fall back to the archive summary,
@@ -468,18 +459,13 @@ impl ProjectRegistry {
         if caller != whitelister && caller != owner {
             panic_with_error!(&env, RegistryError::NotAuthorizedToCertify);
         }
-        let mut project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let mut project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
         if project.certification_status == status {
             panic_with_error!(&env, RegistryError::AlreadyCertified);
         }
         project.certification_status = status.clone();
-        env.storage()
-            .persistent()
-            .set(&DataKey::Project(project_id), &project);
+        storage::write_project(&env, project_id, &project);
         events::project_certified(&env, project_id, status);
     }
 
@@ -488,10 +474,7 @@ impl ProjectRegistry {
     /// date, false otherwise. Projects with no maturity date (0) are never mature.
     pub fn is_mature(env: Env, project_id: u32) -> bool {
         require_current_state(&env);
-        let project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
         if project.maturity_date == 0 {
             return false;
@@ -510,11 +493,7 @@ impl ProjectRegistry {
             .unwrap_or(0);
         let mut result = Vec::new(&env);
         for i in 1..=counter {
-            if let Some(project) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, ProjectData>(&DataKey::Project(i))
-            {
+            if let Some(project) = storage::read_project(&env, i) {
                 if project.status != types::ProjectStatus::Archived {
                     result.push_back((i, project));
                 }
@@ -544,11 +523,7 @@ impl ProjectRegistry {
         let start = offset.saturating_add(1);
         let end = start.saturating_add(limit).min(counter.saturating_add(1));
         for i in start..end {
-            if let Some(project) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, ProjectData>(&DataKey::Project(i))
-            {
+            if let Some(project) = storage::read_project(&env, i) {
                 if project.status != types::ProjectStatus::Archived {
                     result.push_back((i, project));
                 }
@@ -567,11 +542,7 @@ impl ProjectRegistry {
             .unwrap_or(0);
         let mut result = Vec::new(&env);
         for i in 1..=counter {
-            if let Some(project) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, ProjectData>(&DataKey::Project(i))
-            {
+            if let Some(project) = storage::read_project(&env, i) {
                 result.push_back((i, project));
             }
         }
@@ -614,9 +585,7 @@ impl ProjectRegistry {
             votes_against: 0,
             executed: false,
         };
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(proposal_id), &proposal);
+        storage::write_proposal(&env, proposal_id, &proposal);
         env.storage()
             .instance()
             .set(&DataKey::ProposalCounter, &proposal_id);
@@ -646,10 +615,7 @@ impl ProjectRegistry {
         if already {
             panic_with_error!(&env, RegistryError::AlreadyVoted);
         }
-        let mut proposal: Proposal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+        let mut proposal: Proposal = storage::read_proposal(&env, proposal_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProposalNotFound));
         if env.ledger().timestamp() > proposal.voting_ends_at {
             panic_with_error!(&env, RegistryError::VotingPeriodEnded);
@@ -662,9 +628,7 @@ impl ProjectRegistry {
         } else {
             proposal.votes_against += weight;
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(proposal_id), &proposal);
+        storage::write_proposal(&env, proposal_id, &proposal);
         env.storage()
             .persistent()
             .set(&DataKey::HasVoted(proposal_id, voter.clone()), &true);
@@ -675,10 +639,7 @@ impl ProjectRegistry {
     /// Returns true if the proposal passed (votes_for > votes_against).
     pub fn execute_proposal(env: Env, proposal_id: u32) -> bool {
         require_current_state(&env);
-        let mut proposal: Proposal = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+        let mut proposal: Proposal = storage::read_proposal(&env, proposal_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProposalNotFound));
         if env.ledger().timestamp() <= proposal.voting_ends_at {
             panic_with_error!(&env, RegistryError::VotingStillOpen);
@@ -688,9 +649,7 @@ impl ProjectRegistry {
         }
         proposal.executed = true;
         let passed = proposal.votes_for > proposal.votes_against;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Proposal(proposal_id), &proposal);
+        storage::write_proposal(&env, proposal_id, &proposal);
         events::proposal_executed(&env, proposal_id, passed);
         passed
     }
@@ -704,10 +663,7 @@ impl ProjectRegistry {
         if credit_quality > MAX_SCORE {
             panic_with_error!(&env, RegistryError::CreditQualityOutOfRange);
         }
-        let mut project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let mut project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
         // Rate-limit oracle updates: reject if too soon since the last update.
@@ -725,9 +681,7 @@ impl ProjectRegistry {
         project.credit_quality = credit_quality;
         project.last_update_timestamp = env.ledger().timestamp();
         let new_rate = compute_rate(credit_quality, project.green_impact);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Project(project_id), &project);
+        storage::write_project(&env, project_id, &project);
         events::credit_quality_updated(&env, project_id, credit_quality);
         events::score_changed(
             &env,
@@ -745,9 +699,7 @@ impl ProjectRegistry {
     /// Return a proposal by ID. Panics with `ProposalNotFound` if unknown.
     pub fn get_proposal(env: Env, proposal_id: u32) -> Proposal {
         require_current_state(&env);
-        env.storage()
-            .persistent()
-            .get(&DataKey::Proposal(proposal_id))
+        storage::read_proposal(&env, proposal_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProposalNotFound))
     }
 
@@ -768,10 +720,7 @@ impl ProjectRegistry {
         if amount <= 0 {
             panic_with_error!(&env, RegistryError::CollateralNotPositive);
         }
-        let project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
         if project.owner != depositor {
             panic_with_error!(&env, RegistryError::NotProjectOwner);
@@ -805,10 +754,7 @@ impl ProjectRegistry {
         require_not_paused(&env);
         require_current_state(&env);
         caller.require_auth();
-        let project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
         if project.owner != caller {
             panic_with_error!(&env, RegistryError::NotProjectOwner);
@@ -891,10 +837,7 @@ impl ProjectRegistry {
     /// Rate range: 500 bps (5 %) for perfect scores → 1 000 bps (10 %) for zero scores.
     pub fn get_interest_rate(env: Env, project_id: u32) -> u32 {
         require_current_state(&env);
-        let project: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
         compute_rate(project.credit_quality, project.green_impact)
     }
@@ -1041,10 +984,7 @@ impl ProjectRegistry {
     /// overwritten. Returns an empty vec if no scores have been recorded yet.
     pub fn get_score_history(env: Env, project_id: u32) -> Vec<ScoreHistoryEntry> {
         require_current_state(&env);
-        let _: ProjectData = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Project(project_id))
+        let _: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
         let total: u32 = env
@@ -1123,10 +1063,7 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
     if credit_quality > MAX_SCORE || green_impact > MAX_SCORE {
         panic_with_error!(&env, RegistryError::ScoresOutOfRange);
     }
-    let mut project: ProjectData = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Project(project_id))
+    let mut project: ProjectData = storage::read_project(&env, project_id)
         .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
     // Rate-limit oracle updates: reject if too soon since the last update.
@@ -1149,9 +1086,7 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
     project.last_update_timestamp = env.ledger().timestamp();
     let new_rate = compute_rate(credit_quality, green_impact);
 
-    env.storage()
-        .persistent()
-        .set(&DataKey::Project(project_id), &project);
+    storage::write_project(&env, project_id, &project);
     events::project_updated(&env, project_id, credit_quality, green_impact);
     events::rate_updated(&env, project_id, new_rate);
     events::score_changed(
@@ -1170,10 +1105,7 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
 fn liquidate_collateral_internal(env: Env, project_id: u32, token: Address, recipient: Address) {
     require_not_paused(&env);
     require_current_state(&env);
-    let project: ProjectData = env
-        .storage()
-        .persistent()
-        .get(&DataKey::Project(project_id))
+    let project: ProjectData = storage::read_project(&env, project_id)
         .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
     if project.maturity_date > 0 && env.ledger().timestamp() < project.maturity_date {
         panic_with_error!(&env, RegistryError::ProjectNotMature);
@@ -1250,9 +1182,12 @@ fn require_multisig_disabled(env: &Env) {
 }
 
 fn compute_rate(credit_quality: u32, green_impact: u32) -> u32 {
-    let avg = (credit_quality + green_impact) / 2;
-    let discount = avg * MAX_DISCOUNT_BPS / 100;
-    BASE_RATE_BPS - discount
+    logic::calculate_interest_rate(
+        BASE_RATE_BPS,
+        MAX_DISCOUNT_BPS,
+        credit_quality,
+        green_impact,
+    )
 }
 
 fn read_state_version(env: &Env) -> u32 {

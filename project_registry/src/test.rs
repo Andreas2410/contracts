@@ -1942,6 +1942,50 @@ fn test_getters_work_when_paused() {
     assert_eq!(client.is_paused(), true);
 }
 
+// ── Persistent-storage TTL extension on write (#328) ──────────────────────────
+
+#[test]
+fn test_project_write_extends_ttl_beyond_creation() {
+    use soroban_sdk::testutils::storage::Persistent as _;
+
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmTtl"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    let key = crate::types::DataKey::Project(id);
+    let ttl_after_create =
+        env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
+    assert_eq!(ttl_after_create, crate::storage::TTL_EXTEND_TO_LEDGERS);
+
+    // Advance the ledger until the entry's remaining TTL has decayed below the
+    // extension threshold, so the next write is guaranteed to trigger a real
+    // re-extension rather than a threshold-gated no-op.
+    let advance =
+        crate::storage::TTL_EXTEND_TO_LEDGERS - crate::storage::TTL_EXTEND_THRESHOLD_LEDGERS + 1;
+    env.ledger().with_mut(|l| {
+        l.sequence_number += advance;
+    });
+    let ttl_before_update =
+        env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
+    assert!(ttl_before_update < crate::storage::TTL_EXTEND_THRESHOLD_LEDGERS);
+
+    client.update_credit_quality_score(&id, &42u32);
+
+    let ttl_after_update =
+        env.as_contract(&client.address, || env.storage().persistent().get_ttl(&key));
+    assert_eq!(
+        ttl_after_update,
+        crate::storage::TTL_EXTEND_TO_LEDGERS,
+        "writing the project should re-extend its TTL, not just at creation"
+    );
+}
+
 // ── Storage compaction tests (#88) ────────────────────────────────────────────
 
 #[test]
@@ -1981,6 +2025,78 @@ fn test_compact_storage_removes_zero_collateral() {
         &soroban_sdk::vec![&env, token],
     );
     assert_eq!(removed, 0u32);
+}
+
+// ── Project status transitions (#329) ──────────────────────────────────────────
+
+#[test]
+fn test_set_project_status_transitions_and_emits_event() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmStatus"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    assert_eq!(client.get_project(&id).status, ProjectStatus::Pending);
+
+    client.set_project_status(&id, &ProjectStatus::Active);
+
+    // Events are scoped to the most recent invocation, so check right after
+    // the mutating call before any other client call resets the log.
+    let events = env.events().all().filter_by_contract(&client.address);
+    assert_eq!(
+        events.events().len(),
+        1,
+        "set_project_status should emit exactly one event"
+    );
+    assert_eq!(client.get_project(&id).status, ProjectStatus::Active);
+
+    client.set_project_status(&id, &ProjectStatus::Funded);
+    assert_eq!(client.get_project(&id).status, ProjectStatus::Funded);
+}
+
+#[test]
+fn test_set_project_status_rejects_noop() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmStatusNoop"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    assert!(client
+        .try_set_project_status(&id, &ProjectStatus::Pending)
+        .is_err());
+}
+
+#[test]
+fn test_set_project_status_rejects_archived_target_and_source() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmStatusArch"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    // Cannot set Archived through this path — must use archive_project.
+    assert!(client
+        .try_set_project_status(&id, &ProjectStatus::Archived)
+        .is_err());
+
+    client.archive_project(&id);
+    // Cannot transition an already-archived project either.
+    assert!(client
+        .try_set_project_status(&id, &ProjectStatus::Active)
+        .is_err());
 }
 
 // ── Migration tests (#64) ──────────────────────────────────────────────────────
@@ -2104,6 +2220,9 @@ fn test_all_only_owner_functions_reject_non_admin_caller() {
             .is_err(),
         client
             .try_update_credit_quality_score(&project_id, &1u32)
+            .is_err(),
+        client
+            .try_set_project_status(&project_id, &crate::types::ProjectStatus::Active)
             .is_err(),
         client
             .try_liquidate_collateral(&project_id, &addr(), &addr())
@@ -2351,6 +2470,8 @@ fn test_clear_multisig_admin_resets_to_defaults() {
     let (signers, threshold) = client.get_multisig_admin();
     assert_eq!(signers.len(), 0);
     assert_eq!(threshold, 0);
+}
+
 // ── Issue #390: health_check test coverage (project_registry) ────────────────
 
 /// health_check returns default operational state for a fresh registry.

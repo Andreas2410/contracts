@@ -1,4 +1,4 @@
-use crate::types::CertificationStatus;
+use crate::types::{CertificationStatus, ProjectStatus};
 use soroban_sdk::{contractevent, Address, Env};
 
 /// Emitted when collateral is deposited for a project (#128).
@@ -185,6 +185,29 @@ pub fn whitelist_set(env: &Env, account: &Address, status: bool) {
 
 pub fn project_archived(env: &Env, project_id: u32) {
     ProjectArchived { project_id }.publish(env);
+}
+
+/// Emitted when a project's lifecycle status is changed via `set_project_status` (#329).
+#[contractevent]
+pub struct ProjectStatusChanged {
+    #[topic]
+    pub project_id: u32,
+    pub old_status: ProjectStatus,
+    pub new_status: ProjectStatus,
+}
+
+pub fn project_status_changed(
+    env: &Env,
+    project_id: u32,
+    old_status: ProjectStatus,
+    new_status: ProjectStatus,
+) {
+    ProjectStatusChanged {
+        project_id,
+        old_status,
+        new_status,
+    }
+    .publish(env);
 }
 
 pub fn project_deleted(env: &Env, project_id: u32) {
