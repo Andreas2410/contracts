@@ -146,19 +146,32 @@ async function invokeContract(
 
 ### Check if an address is whitelisted
 
+> **Note:** There is no on-chain `get_whitelist` getter. The only way to
+> determine current whitelist status off-chain is to index `WhitelistSet`
+> events emitted by `set_whitelist`. The example below filters the event
+> stream for the most recent status for a given address.
+
 ```typescript
 const REGISTRY = "CXXX…";
 
-const result = await server.simulateTransaction(
-  new TransactionBuilder(account, { fee: "100", networkPassphrase: network })
-    .addOperation(new Contract(REGISTRY).call(
-      "get_whitelist",
-      nativeToScVal(keypair.publicKey(), { type: "address" }),
-    ))
-    .setTimeout(30)
-    .build()
-);
-const isWhitelisted: boolean = scValToNative((result as any).result.retval);
+// Index WhitelistSet events to reconstruct current whitelist status.
+// There is no direct on-chain query for this — set_whitelist emits
+// WhitelistSet { account, status } and that is the only source of truth.
+const events = await server.getEvents({
+  filters: [{ type: "contract", contractId: REGISTRY }],
+  startLedger: 0,
+  limit: 100,
+});
+const target = keypair.publicKey();
+let isWhitelisted = false;
+for (const event of events.events) {
+  if (event.type !== "contract") continue;
+  const topics = event.topics.map(scValToNative);
+  if (topics[0] !== "WhitelistSet") continue;
+  if (topics[1] === target) {
+    isWhitelisted = topics[2] as boolean;
+  }
+}
 ```
 
 ### Create a project
@@ -171,6 +184,7 @@ const projectId = scValToNative(await invokeContract(
     nativeToScVal(keypair.publicKey(), { type: "address" }),  // creator
     nativeToScVal("ipfs://QmYourHash",  { type: "string" }),  // uri
     nativeToScVal(0n,                   { type: "u64" }),     // maturity_date (0 = open-ended)
+    nativeToScVal(hash("project-metadata-v1"), { type: "bytesN<32>" }), // metadata_hash
   ],
   keypair,
 ));
