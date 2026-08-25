@@ -1820,6 +1820,26 @@ fn test_address_to_bytes32_keeps_trailing_bytes_when_source_exceeds_32() {
 // ── Issue #429: set_carbon_oracle()/set_max_transaction_amount() success-path coverage ─
 
 #[test]
+// ── Issue #403: calculate_carbon_credits must reject non-positive amounts ──────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_calculate_carbon_credits_rejects_non_positive_amount() {
+    let s = setup();
+    let creator = Address::generate(&s.env);
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+
+    s.vault_client.calculate_carbon_credits(&project_id, &0i128);
+}
+
+#[test]
 fn test_set_carbon_oracle_persists_emits_event_and_is_idempotent() {
     let s = setup();
     let oracle = Address::generate(&s.env);

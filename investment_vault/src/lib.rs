@@ -1611,12 +1611,28 @@ impl InvestmentVault {
     }
 
     /// Calculate carbon credit output based on investment amount and project green impact (#184).
+    ///
+    /// Panics with `AmountNotPositive` if `amount` is not positive (#403) -- a
+    /// negative amount would otherwise silently produce a nonsensical negative
+    /// `credits` value with no error, and only `issue_carbon_credits` (a
+    /// separate caller) happened to reject that afterward.
+    ///
+    /// Emits `CarbonCreditsCalculated` on every call intentionally (#403): this
+    /// is read-only and un-auth'd by design, mirroring `calculate_carbon_credits`
+    /// being usable as a quote/preview before committing to `issue_carbon_credits`,
+    /// so off-chain indexers can track calculation activity (e.g. for analytics
+    /// on quoted-vs-issued credit volume) without requiring a state-mutating call.
+    /// Each call still costs the caller their own transaction fee, which is
+    /// sufficient to bound event-log spam for a function with no state to protect.
     pub fn calculate_carbon_credits(
         env: Env,
         project_id: u32,
         amount: i128,
     ) -> CarbonCreditCalculation {
         require_current_state(&env);
+        if amount <= 0 {
+            panic_with_error!(&env, VaultError::AmountNotPositive);
+        }
         let registry_addr: Address = env.storage().instance().get(&VaultKey::Registry).unwrap();
         let registry = registry_interface::Client::new(&env, &registry_addr);
         let project = registry.get_project(&project_id);
