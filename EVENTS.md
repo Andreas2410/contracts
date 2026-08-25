@@ -62,6 +62,18 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Description**: Emitted when yield repayment USDC is received from a project and folded into the yield-per-share accumulator for later claims.
 - **Emitted by**: [`receive_yield`](INTERFACE.md#investmentvault)
 
+### `yield_claimed`
+- **Topics**: `["vault", "yield_claimed"]`
+- **Data**: `(to: Address, amount: i128)`
+- **Description**: Emitted when a shareholder claims accumulated yield, transferring USDC out of the vault to `to`.
+- **Emitted by**: [`claim_yield`](INTERFACE.md#investmentvault)
+
+### `insurance_claimed`
+- **Topics**: `["vault", "insurance_claimed"]`
+- **Data**: `(project_id: u32, recipient: Address, amount: i128)`
+- **Description**: Emitted when an insurance payout is made for a defaulted project, transferring USDC out of the vault to `recipient`.
+- **Emitted by**: [`claim_insurance`](INTERFACE.md#investmentvault), [`claim_insurance_with_approvals`](INTERFACE.md#investmentvault)
+
 ### `bridge_transfer_initiated`
 - **Topics**: `["vault", "bridge_transfer_initiated"]`
 - **Data**: `(from: Address, amount: i128, target_chain: u32, recipient: BytesN<32>, sequence: u64)`
@@ -133,3 +145,51 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(amount: i128)`
 - **Description**: Emitted when the maximum single-transaction amount compliance limit is updated.
 - **Emitted by**: [`set_max_transaction_amount`](INTERFACE.md#investmentvault)
+
+### `management_fee_set`
+- **Topics**: `["vault", "management_fee_set"]`
+- **Data**: `(recipient: Address, fee_bps: u32)`
+- **Description**: Emitted when the admin updates the management fee configuration.
+- **Emitted by**: [`set_management_fee`](INTERFACE.md#investmentvault)
+
+### `trading_enabled`
+- **Topics**: `["vault", "trading_enabled"]`
+- **Data**: `(enabled: bool)`
+- **Description**: Emitted when the admin enables secondary market trading for HBS shares.
+- **Emitted by**: [`enable_secondary_trading`](INTERFACE.md#investmentvault)
+
+### `funding_thresholds_set`
+- **Topics**: `["vault", "funding_thresholds_set"]`
+- **Data**: `(min_credit_quality: u32, min_green_impact: u32)`
+- **Description**: Emitted when the admin updates the minimum funding score thresholds.
+- **Emitted by**: [`set_funding_thresholds`](INTERFACE.md#investmentvault)
+
+### `registry_changed`
+- **Topics**: `["vault", "registry_changed"]`
+- **Data**: `(old_registry: Address, new_registry: Address)`
+- **Description**: Emitted when the admin replaces the linked ProjectRegistry contract.
+- **Emitted by**: [`set_registry`](INTERFACE.md#investmentvault)
+
+### `utilization_warning`
+- **Topics**: `["vault", "utilization_warning"]`
+- **Data**: `(utilization_bps: u32)`
+- **Description**: Emitted during `withdraw()` whenever vault utilization crosses the high-utilization threshold (`UTIL_WARN_BPS`, 70%). Off-chain monitors should alert operators to consider replenishing liquidity.
+- **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
+
+### `bridge_set`
+- **Topics**: `["vault", "bridge_set"]`
+- **Data**: `(bridge: Address)`
+- **Description**: Emitted when the admin configures the direct (non-Wormhole) bridge address authorised to mint/burn vault shares.
+- **Emitted by**: [`set_bridge`](INTERFACE.md#investmentvault)
+
+### `bridge_mint`
+- **Topics**: `["vault", "bridge_mint"]`
+- **Data**: `(to: Address, amount: i128)`
+- **Description**: Emitted when the configured direct bridge mints shares to `to` for an inbound cross-chain transfer.
+- **Emitted by**: [`bridge_mint`](INTERFACE.md#investmentvault)
+
+### `bridge_burn`
+- **Topics**: `["vault", "bridge_burn"]`
+- **Data**: `(from: Address, amount: i128)`
+- **Description**: Emitted when the configured direct bridge burns shares from `from` for an outbound cross-chain transfer.
+- **Emitted by**: [`bridge_burn`](INTERFACE.md#investmentvault)
