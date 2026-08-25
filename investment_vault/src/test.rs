@@ -3229,3 +3229,439 @@ fn test_insurance_fund_accumulates_across_deposits() {
     let premium_b = amount_b * 50 / 10_000;
     assert_eq!(s.vault_client.insurance_fund_balance(), premium_a + premium_b);
 }
+
+// ── Issue #389: yield accrual and claim coverage ─────────────────────────────
+
+/// receive_yield updates the per-share accumulator so that a single depositor
+/// can claim the full yield amount.
+#[test]
+fn test_receive_yield_updates_accumulator_and_claimable() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let yield_source = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    // Yield source must have USDC to transfer into the vault.
+    let yield_amount = 100_0000000i128; // 100 USDC
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, yield_amount);
+    s.vault_client.receive_yield(&yield_source, &yield_amount);
+
+    // With a single depositor holding all shares, claimable == yield_amount.
+    let claimable = s.vault_client.claimable_yield(&investor);
+    assert_eq!(claimable, yield_amount);
+
+    // The accumulator should equal yield_amount * YIELD_SCALE / total_shares.
+    let expected_accum = yield_amount * 1_000_000_000_000_000_000i128 / shares;
+    let accum: i128 = s.env.as_contract(&s.vault_address, || {
+        s.env
+            .storage()
+            .persistent()
+            .get(&VaultKey::YieldPerShareAccum)
+            .unwrap_or(0)
+    });
+    assert_eq!(accum, expected_accum);
+}
+
+/// claim_yield transfers claimable USDC to the caller and resets their debt
+/// checkpoint so a second claim returns zero.
+#[test]
+fn test_claim_yield_transfers_usdc_and_resets_debt() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let yield_source = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    let yield_amount = 50_0000000i128; // 50 USDC
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, yield_amount);
+    s.vault_client.receive_yield(&yield_source, &yield_amount);
+
+    let balance_before = s
+        .env
+        .as_contract(&s.vault_address, || {
+            soroban_sdk::token::TokenClient::new(&s.env, &s.usdc_sac)
+                .balance(&s.vault_address)
+        });
+
+    let claimed = s.vault_client.claim_yield(&investor);
+    assert_eq!(claimed, yield_amount);
+
+    // Vault liquid USDC should have decreased by the claimed amount.
+    let balance_after = s
+        .env
+        .as_contract(&s.vault_address, || {
+            soroban_sdk::token::TokenClient::new(&s.env, &s.usdc_sac)
+                .balance(&s.vault_address)
+        });
+    assert_eq!(balance_before - balance_after, yield_amount);
+
+    // Second claim returns 0 — debt is now equal to accumulator.
+    let second_claim = s.vault_client.claim_yield(&investor);
+    assert_eq!(second_claim, 0);
+}
+
+/// Yield is split proportionally between two depositors based on share balance.
+#[test]
+fn test_yield_splits_proportionally_between_depositors() {
+    let s = setup();
+    let alice = Address::generate(&s.env);
+    let bob = Address::generate(&s.env);
+    let yield_source = Address::generate(&s.env);
+
+    // Alice deposits 3000, Bob deposits 1000 — 3:1 share ratio (after premium).
+    mint_usdc(&s.env, &s.usdc_sac, &alice, 3_000_0000000i128);
+    let shares_a = s.vault_client.deposit(&alice, &3_000_0000000i128);
+    mint_usdc(&s.env, &s.usdc_sac, &bob, 1_000_0000000i128);
+    let shares_b = s.vault_client.deposit(&bob, &1_000_0000000i128);
+
+    let yield_amount = 400_0000000i128; // 400 USDC
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, yield_amount);
+    s.vault_client.receive_yield(&yield_source, &yield_amount);
+
+    let claimable_a = s.vault_client.claimable_yield(&alice);
+    let claimable_b = s.vault_client.claimable_yield(&bob);
+
+    // claimable should be proportional to shares.
+    assert_eq!(claimable_a * shares_b, claimable_b * shares_a);
+    // Sum of claimable amounts should equal the full yield.
+    assert_eq!(claimable_a + claimable_b, yield_amount);
+}
+
+/// receive_yield panics when there are no shares outstanding (#8).
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn test_receive_yield_panics_with_no_shares_outstanding() {
+    let s = setup();
+    let yield_source = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, 100_0000000i128);
+    s.vault_client.receive_yield(&yield_source, &100_0000000i128);
+}
+
+/// claim_yield panics when the vault has insufficient liquid USDC (#9).
+#[test]
+#[should_panic(expected = "Error(Contract, #9)")]
+fn test_claim_yield_panics_on_insufficient_liquid() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let yield_source = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    // Receive yield so claimable > 0.
+    let yield_amount = 100_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, yield_amount);
+    s.vault_client.receive_yield(&yield_source, &yield_amount);
+
+    // Drain vault liquid USDC by investing it all into a project, leaving
+    // nothing for the yield claim.
+    let creator = Address::generate(&s.env);
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://QmDrain"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    let admin = stellar_access::ownable::get_owner(&s.env).unwrap();
+    s.env.mock_auths(&[soroban_sdk::testutils::AuthMock {
+        address: &admin,
+        invoke: &soroban_sdk::testutils::AuthInvocation {
+            contract: &s.vault_address,
+            fn_name: "fund_project",
+            args: (&project_id, &(1_000_0000000i128 - yield_amount)).into_val(&s.env),
+        },
+    }]);
+    s.vault_client.fund_project(&project_id, &(1_000_0000000i128 - yield_amount));
+
+    // Now vault has yield_amount USDC but investor's claimable is yield_amount.
+    // The investable deduction means claimable > vault liquid. Try to claim.
+    s.vault_client.claim_yield(&investor);
+}
+
+/// receive_yield panics when the amount is not positive (#7).
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
+fn test_receive_yield_panics_on_non_positive_amount() {
+    let s = setup();
+    let yield_source = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, 1_000_0000000i128);
+    s.vault_client.receive_yield(&yield_source, &0);
+}
+
+/// claimable_yield returns zero for an address with no shares.
+#[test]
+fn test_claimable_yield_zero_for_non_depositor() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let yield_source = Address::generate(&s.env);
+    let stranger = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    mint_usdc(&s.env, &s.usdc_sac, &yield_source, 100_0000000i128);
+    s.vault_client.receive_yield(&yield_source, &100_0000000i128);
+
+    assert_eq!(s.vault_client.claimable_yield(&stranger), 0);
+}
+
+// ── Issue #390: health_check test coverage (investment_vault) ────────────────
+
+/// health_check returns default operational state for a fresh vault.
+#[test]
+fn test_health_check_default_state() {
+    let s = setup();
+    let status = s.vault_client.health_check();
+
+    assert_eq!(status.state_version, 1);
+    assert_eq!(status.is_paused, false);
+    assert_eq!(status.utilization_bps, 0);
+    assert_eq!(status.has_emergency_admin, false);
+}
+
+/// health_check reflects a paused vault.
+#[test]
+fn test_health_check_reflects_paused_state() {
+    let s = setup();
+    let emergency_admin = Address::generate(&s.env);
+    s.vault_client.set_emergency_admin(&Some(emergency_admin.clone()));
+
+    s.vault_client.emergency_pause(&emergency_admin);
+
+    let status = s.vault_client.health_check();
+    assert_eq!(status.is_paused, true);
+}
+
+/// health_check reports has_emergency_admin when one is configured.
+#[test]
+fn test_health_check_reflects_emergency_admin() {
+    let s = setup();
+    let emergency_admin = Address::generate(&s.env);
+    s.vault_client.set_emergency_admin(&Some(emergency_admin));
+
+    let status = s.vault_client.health_check();
+    assert_eq!(status.has_emergency_admin, true);
+}
+
+// ── Issue #391: compliance / reporting test coverage ──────────────────────────
+
+/// set_max_transaction_amount stores and retrieves the configured limit.
+#[test]
+fn test_set_max_transaction_amount_happy_path() {
+    let s = setup();
+    let limit = 500_000_000i128; // 500 USDC
+
+    s.vault_client.set_max_transaction_amount(&limit);
+
+    assert_eq!(s.vault_client.max_transaction_amount(), limit);
+}
+
+/// set_max_transaction_amount panics on a negative value (#55).
+#[test]
+#[should_panic(expected = "Error(Contract, #55)")]
+fn test_set_max_transaction_amount_panics_on_negative() {
+    let s = setup();
+    s.vault_client.set_max_transaction_amount(&-1i128);
+}
+
+/// set_max_transaction_amount is a no-op when the value hasn't changed.
+#[test]
+fn test_set_max_transaction_amount_noop_when_unchanged() {
+    let s = setup();
+    let limit = 1_000_000_000i128;
+
+    s.vault_client.set_max_transaction_amount(&limit);
+    // Calling again with the same value should succeed without emitting
+    // a duplicate event (no panic, no error).
+    s.vault_client.set_max_transaction_amount(&limit);
+    assert_eq!(s.vault_client.max_transaction_amount(), limit);
+}
+
+/// max_transaction_amount returns 0 when no limit has been configured.
+#[test]
+fn test_max_transaction_amount_defaults_to_zero() {
+    let s = setup();
+    assert_eq!(s.vault_client.max_transaction_amount(), 0);
+}
+
+/// record_compliance_event stores an event retrievable by sequence number.
+#[test]
+fn test_record_and_get_compliance_event() {
+    let s = setup();
+    let event_type = String::from_str(&s.env, "KYC_VERIFIED");
+    let data = String::from_str(&s.env, "addr:GBXXX passes check");
+
+    s.vault_client.record_compliance_event(&event_type, &data);
+
+    let event = s.vault_client.get_compliance_event(&1);
+    assert_eq!(event.seq, 1);
+    assert_eq!(event.event_type, event_type);
+    assert_eq!(event.data, data);
+    assert!(event.timestamp > 0);
+}
+
+/// record_compliance_event auto-increments sequence numbers.
+#[test]
+fn test_compliance_event_auto_increments_seq() {
+    let s = setup();
+
+    s.vault_client.record_compliance_event(
+        &String::from_str(&s.env, "EVENT_A"),
+        &String::from_str(&s.env, "data_a"),
+    );
+    s.vault_client.record_compliance_event(
+        &String::from_str(&s.env, "EVENT_B"),
+        &String::from_str(&s.env, "data_b"),
+    );
+
+    let e1 = s.vault_client.get_compliance_event(&1);
+    let e2 = s.vault_client.get_compliance_event(&2);
+    assert_eq!(e1.event_type, String::from_str(&s.env, "EVENT_A"));
+    assert_eq!(e2.event_type, String::from_str(&s.env, "EVENT_B"));
+}
+
+/// get_compliance_event panics for a non-existent sequence (#56).
+#[test]
+#[should_panic(expected = "Error(Contract, #56)")]
+fn test_get_compliance_event_panics_for_missing_seq() {
+    let s = setup();
+    s.vault_client.get_compliance_event(&999);
+}
+
+/// get_compliance_events returns a range of events.
+#[test]
+fn test_get_compliance_events_range() {
+    let s = setup();
+
+    for i in 1..=5 {
+        s.vault_client.record_compliance_event(
+            &String::from_str(&s.env, &format!("TYPE_{}", i)),
+            &String::from_str(&s.env, &format!("data_{}", i)),
+        );
+    }
+
+    let events = s.vault_client.get_compliance_events(&2, &4);
+    assert_eq!(events.len(), 3);
+    assert_eq!(events.get_unchecked(0).seq, 2);
+    assert_eq!(events.get_unchecked(2).seq, 4);
+}
+
+/// get_compliance_events caps at 100 entries per call.
+#[test]
+fn test_get_compliance_events_range_caps_at_100() {
+    let s = setup();
+
+    // Record 120 events.
+    for i in 1..=120 {
+        s.vault_client.record_compliance_event(
+            &String::from_str(&s.env, &format!("T{}", i)),
+            &String::from_str(&s.env, &format!("d{}", i)),
+        );
+    }
+
+    // Requesting from 1..=200 should return at most 100.
+    let events = s.vault_client.get_compliance_events(&1, &200);
+    assert_eq!(events.len(), 100);
+}
+
+/// get_compliance_events returns empty vec when from > to.
+#[test]
+fn test_get_compliance_events_empty_when_from_gt_to() {
+    let s = setup();
+    let events = s.vault_client.get_compliance_events(&10, &5);
+    assert_eq!(events.len(), 0);
+}
+
+/// record_compliance_event prunes events beyond MAX_COMPLIANCE_EVENTS (1000).
+#[test]
+fn test_compliance_event_prunes_oldest_when_over_limit() {
+    let s = setup();
+
+    // Record 1001 events to trigger pruning.
+    for i in 1..=1001 {
+        s.vault_client.record_compliance_event(
+            &String::from_str(&s.env, &format!("T{}", i)),
+            &String::from_str(&s.env, &format!("d{}", i)),
+        );
+    }
+
+    // Event #1 should have been pruned.
+    let result = s.vault_client.try_get_compliance_event(&1u64);
+    assert!(result.is_err());
+
+    // Event #2 should still exist.
+    let event = s.vault_client.get_compliance_event(&2);
+    assert_eq!(event.seq, 2);
+}
+
+/// take_reporting_snapshot captures vault metrics and get_latest_snapshot retrieves them.
+#[test]
+fn test_take_and_get_reporting_snapshot() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let amount = 1_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, amount);
+    s.vault_client.deposit(&investor, &amount);
+
+    s.vault_client.take_reporting_snapshot();
+
+    let snapshot = s.vault_client.get_latest_snapshot();
+    assert!(snapshot.timestamp > 0);
+    assert!(snapshot.total_assets > 0);
+    assert!(snapshot.total_supply > 0);
+    assert_eq!(snapshot.total_investments, 0);
+}
+
+/// get_latest_snapshot panics if no snapshot has been taken (#57).
+#[test]
+#[should_panic(expected = "Error(Contract, #57)")]
+fn test_get_latest_snapshot_panics_when_none_taken() {
+    let s = setup();
+    s.vault_client.get_latest_snapshot();
+}
+
+/// export_regulatory_data returns a report combining snapshot, events, and limits.
+#[test]
+fn test_export_regulatory_data() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    // Set a transaction limit.
+    s.vault_client.set_max_transaction_amount(&500_000_000i128);
+
+    // Record a compliance event.
+    s.vault_client.record_compliance_event(
+        &String::from_str(&s.env, "AUDIT"),
+        &String::from_str(&s.env, "q1 review passed"),
+    );
+
+    // Take a snapshot.
+    s.vault_client.take_reporting_snapshot();
+
+    let report = s.vault_client.export_regulatory_data();
+    assert!(report.snapshot.timestamp > 0);
+    assert!(report.recent_events.len() > 0);
+    assert_eq!(report.max_transaction_amount, 500_000_000i128);
+}
+
+/// export_regulatory_data works even without a prior snapshot (uses live metrics).
+#[test]
+fn test_export_regulatory_data_without_snapshot() {
+    let s = setup();
+    let report = s.vault_client.export_regulatory_data();
+
+    // Without a snapshot, the report should use live metrics.
+    assert_eq!(report.snapshot.timestamp, 0);
+    assert_eq!(report.snapshot.total_assets, 0);
+    assert_eq!(report.recent_events.len(), 0);
+    assert_eq!(report.max_transaction_amount, 0);
+}

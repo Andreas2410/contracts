@@ -2302,3 +2302,65 @@ proptest! {
         prop_assert!(result.is_err());
     }
 }
+
+// ── Issue #390: health_check test coverage (project_registry) ────────────────
+
+/// health_check returns default operational state for a fresh registry.
+#[test]
+fn test_health_check_default_state() {
+    let (_env, _admin, _whitelister, client) = setup();
+    let status = client.health_check();
+
+    assert_eq!(status.state_version, 1);
+    assert_eq!(status.is_paused, false);
+    assert_eq!(status.total_projects, 0);
+    assert_eq!(status.has_emergency_admin, false);
+}
+
+/// health_check reflects total_projects after creation.
+#[test]
+fn test_health_check_reflects_project_count() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm1"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+    client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm2"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    let status = client.health_check();
+    assert_eq!(status.total_projects, 2);
+}
+
+/// health_check reflects a paused registry.
+#[test]
+fn test_health_check_reflects_paused_state() {
+    let (env, _admin, _whitelister, client) = setup();
+    let emergency_admin = Address::generate(&env);
+    client.set_emergency_admin(&Some(emergency_admin.clone()));
+
+    client.emergency_pause(&emergency_admin);
+
+    let status = client.health_check();
+    assert_eq!(status.is_paused, true);
+}
+
+/// health_check reports has_emergency_admin when one is configured.
+#[test]
+fn test_health_check_reflects_emergency_admin() {
+    let (_env, _admin, _whitelister, client) = setup();
+    let emergency_admin = Address::generate(&_env);
+    client.set_emergency_admin(&Some(emergency_admin));
+
+    let status = client.health_check();
+    assert_eq!(status.has_emergency_admin, true);
+}
