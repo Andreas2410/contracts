@@ -124,7 +124,7 @@ All configuration and counters are in instance storage. The instance TTL is bump
 
 | Key | Rust type | Key bytes | Value bytes (approx) | Description |
 |-----|-----------|-----------|---------------------|-------------|
-| `DataKey::Project(u32)` | `ProjectData` | ~12 | ~132–580 | Full project record keyed by ID |
+| `DataKey::Project(u32)` | `ProjectData` | ~12 | ~172–620 | Full project record keyed by ID |
 | `DataKey::Whitelist(Address)` | `bool` | ~42 | 1 | `true` if address is whitelisted |
 | `DataKey::Proposal(u32)` | `Proposal` | ~13 | ~100+ | Governance proposal keyed by ID |
 | `DataKey::HasVoted(u32, Address)` | `bool` | ~47 | 1 | `true` if address has voted on proposal |
@@ -143,11 +143,13 @@ pub struct ProjectData {
     pub maturity_date: u64,                      // 8 bytes
     pub certification_status: CertificationStatus, // 4 bytes
     pub last_update_timestamp: u64,              // 8 bytes
-    pub archived: bool,                          // 1 byte
+    pub status: ProjectStatus,                   // 4 bytes
+    pub created_at: u64,                         // 8 bytes
+    pub metadata_hash: BytesN<32>,               // 32 bytes
 }
 ```
 
-Approximate encoded size: **~132 bytes** (typical 64-byte IPFS URI) to **~580 bytes** (max 512-byte URI).
+Approximate encoded size: **~172 bytes** (typical 64-byte IPFS URI) to **~620 bytes** (max 512-byte URI).
 
 #### `ArchiveSummary` layout (#73)
 
@@ -158,10 +160,11 @@ pub struct ArchiveSummary {
     pub final_green_impact: u32,     // 4 bytes
     pub maturity_date: u64,          // 8 bytes
     pub certification_status: CertificationStatus, // 4 bytes
+    pub metadata_hash: BytesN<32>,   // 32 bytes (preserved after compaction, #448)
 }
 ```
 
-Approximate encoded size: **~52 bytes** — a **~88% reduction** versus a max-URI `ProjectData`.
+Approximate encoded size: **~84 bytes** — a **~86% reduction** versus a max-URI `ProjectData`.
 
 #### `Proposal` layout
 
@@ -276,9 +279,9 @@ Soroban charges rent based on **entry size in bytes × ledger TTL**. The followi
 
 | Entry | Key bytes | Value bytes | Total | Notes |
 |-------|-----------|-------------|-------|-------|
-| `ProjectData` (max URI) | ~12 | ~580 | ~592 | Dominant cost per project |
-| `ProjectData` (64-byte IPFS CID) | ~12 | ~132 | ~144 | Typical cost |
-| `ArchiveSummary` | ~9 | ~52 | ~61 | After `compact_archive` |
+| `ProjectData` (max URI) | ~12 | ~620 | ~632 | Dominant cost per project |
+| `ProjectData` (64-byte IPFS CID) | ~12 | ~172 | ~184 | Typical cost |
+| `ArchiveSummary` | ~9 | ~84 | ~93 | After `compact_archive` |
 | `Proposal` (short description) | ~13 | ~100 | ~113 | Depends on description length |
 | `HasVoted(id, addr)` | ~47 | 1 | ~48 | One per voter per proposal |
 | `YieldDebt(addr)` | ~42 | 16 | ~58 | One per investor who claims yield |

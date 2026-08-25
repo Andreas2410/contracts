@@ -170,7 +170,7 @@ Sets the `Ownable` owner to `admin`, stores USDC SAC and Registry addresses, ini
 |---|---|---|
 | `deposit(from, usdc_amount)` | `from` | Transfer USDC from investor; mint HBS shares; return shares minted |
 | `batch_deposit(deposits)` | Each depositor | Batch deposit for multiple investors |
-| `withdraw(from, shares_amount)` | `from` | Burn HBS shares; enqueue if insufficient liquidity |
+| `withdraw(from, shares_amount, min_usdc_return)` | `from` | Burn HBS shares; enqueue if insufficient liquidity. Panics if USDC return is below `min_usdc_return` (slippage protection). |
 | `claim()` | none | Settle queued redemptions FIFO; return USDC paid out |
 | `fund_project(project_id, amount)` | `Admin` | Cross-call Registry; transfer USDC to project owner |
 | `fund_project_with_approvals(project_id, amount, approvals)` | Multi-sig signers | Multi-sig variant for critical operations |

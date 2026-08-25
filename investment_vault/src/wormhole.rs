@@ -209,9 +209,32 @@ pub fn serialize_bridge_payload(env: &Env, p: &BridgeTransferPayload) -> Bytes {
     buf
 }
 
+/// Minimum valid payload length: 4 (prefix) + 32 (token) + 32 (recipient) +
+/// 16 (amount) + 4 (source_chain) + 4 (target_chain) + 8 (nonce) = 100 bytes.
+const MIN_PAYLOAD_LEN: u32 = 100;
+
 /// Parse a `BridgeTransferPayload` from raw Wormhole payload bytes.
+///
+/// # Panics
+///
+/// Panics if the payload is shorter than [`MIN_PAYLOAD_LEN`] bytes or does not
+/// start with the [`PAYLOAD_PREFIX`] magic bytes (`HBS\x00`).
 pub fn parse_bridge_payload(env: &Env, raw: &Bytes) -> BridgeTransferPayload {
     let prefix_len: u32 = 4;
+
+    // Validate minimum length before reading any fields.
+    let len = raw.len();
+    if len < MIN_PAYLOAD_LEN {
+        panic!("bridge payload too short");
+    }
+
+    // Validate the magic prefix to reject payloads that are not HBS transfers.
+    for i in 0..prefix_len {
+        if raw.get(i).unwrap_or(0) != PAYLOAD_PREFIX[i as usize] {
+            panic!("invalid bridge payload prefix");
+        }
+    }
+
     let mut offset: u32 = prefix_len;
 
     let mut token_arr = [0u8; 32];

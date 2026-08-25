@@ -117,7 +117,7 @@ Token: HBS (Heliobond Shares) — SEP-41 fungible token via `FungibleToken` trai
 | Function | Auth | Args | Returns | Events |
 |---|---|---|---|---|
 | `deposit(from, usdc_amount)` | from | `from: Address, usdc_amount: i128` (≤ MAX\_DEPOSIT) | `i128` (shares minted) | `Deposit { from, usdc_amount, shares_minted }` |
-| `withdraw(from, shares_amount)` | from (via `burn`) | `from: Address, shares_amount: i128` | `i128` (USDC returned) | `Withdraw { from, shares_burned, usdc_returned }` |
+| `withdraw(from, shares_amount, min_usdc_return)` | from (via `burn`) | `from: Address, shares_amount: i128, min_usdc_return: i128` | `i128` (USDC returned) | `Withdraw { from, shares_burned, usdc_returned }` |
 
 **Deposit fee deduction order:**
 1. `insurance_premium = usdc_amount × 50 / 10_000`
@@ -252,8 +252,9 @@ Investor                       |                              |
    - Updates `TotalInvestments` and `ProjectInvestment(project_id)` ledger entries
    - Emits `ProjectFunded`
 
-3. **Investor calls `withdraw(from, shares_amount)`**
+3. **Investor calls `withdraw(from, shares_amount, min_usdc_return)`**
    - Calls `convert_to_assets(shares_amount)` to determine USDC to return
+   - Panics if the USDC return is below `min_usdc_return` (slippage protection)
    - Burns HBS shares via `Base::burn`
    - Transfers USDC from vault to investor
 

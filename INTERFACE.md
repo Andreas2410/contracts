@@ -129,7 +129,7 @@ Compliance/reporting types: `ComplianceEventData`, `ReportingSnapshotData`,
 | `__constructor(admin: Address, usdc_sac: Address, registry: Address)` | none | none | Validates registry via `total_projects()`, sets HBS metadata. |
 | `deposit(from: Address, usdc_amount: i128)` | `from` | `i128` | Transfers USDC, deducts insurance premium and optional fee, mints shares. |
 | `batch_deposit(deposits: Vec<(Address, i128)>)` | each depositor | `Vec<i128>` | Runs multiple deposits in order; keep batches small enough for Soroban resource limits. |
-| `withdraw(from: Address, shares_amount: i128)` | `from` via burn | `i128` | Burns shares; may enqueue if liquid USDC is insufficient. |
+| `withdraw(from: Address, shares_amount: i128, min_usdc_return: i128)` | `from` via burn | `i128` | Burns shares; may enqueue if liquid USDC is insufficient. Panics if the actual USDC return is below `min_usdc_return` (slippage protection). |
 | `claim()` | none | `i128` | Settles queued withdrawals FIFO. |
 | `fund_project(project_id: u32, amount: i128)` | owner, or disabled when multi-sig is enabled | none | Critical operation; checks score thresholds and insurance reserve. |
 | `fund_project_with_approvals(project_id: u32, amount: i128, approvals: Vec<Address>)` | multi-sig signers | none | Critical operation. |
