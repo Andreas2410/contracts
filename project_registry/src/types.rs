@@ -96,6 +96,10 @@ pub enum RegistryError {
     ProposalDescriptionTooLong = 39,
     /// update_impact_scores_batch received an empty updates list (#445).
     EmptyBatchUpdate = 40,
+    /// compact_storage input exceeds the maximum allowed batch size (#332).
+    CompactStorageTooLarge = 41,
+    /// create_proposal voting_duration_secs exceeds the maximum allowed period (#332).
+    VotingPeriodTooLong = 42,
 }
 
 /// Certification state for a green project (#130).
