@@ -349,9 +349,8 @@ impl InvestmentVault {
         expected
     }
 
-    /// Return the vault's net asset value (NAV) from cache (#81).
-    /// Use `refresh_total_assets` to recompute from scratch if the cache
-    /// may be stale (e.g., after a direct USDC transfer to the vault address).
+    /// Return the vault's net asset value (NAV) by recomputing from on-chain
+    /// state on every call (e.g., liquid USDC + investments + expected returns).
     pub fn total_assets(env: Env) -> i128 {
         let usdc_sac: Address = env.storage().instance().get(&VaultKey::UsdcSac).unwrap();
         let liquid = soroban_sdk::token::TokenClient::new(&env, &usdc_sac)
@@ -1565,7 +1564,7 @@ impl InvestmentVault {
         }
 
         Base::transfer(&env, &borrower, &MuxedAddress::from(&vault), amount + fee);
-        Base::burn(&env, &vault, amount);
+        Base::burn(&env, &vault, amount + fee);
 
         events::flash_loan(&env, &initiator, &borrower, amount, fee);
     }

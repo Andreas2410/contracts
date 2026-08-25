@@ -124,15 +124,6 @@ export class Store {
     return this.rowToPreference(row);
   }
 
-  getAllEnabledPreferences(): NotificationPreference[] {
-    const rows = this.db
-      .prepare(
-        "SELECT * FROM notification_preferences WHERE enabled = 1 AND (email IS NOT NULL OR webhook_url IS NOT NULL)",
-      )
-      .all() as Record<string, unknown>[];
-    return rows.map((r) => this.rowToPreference(r));
-  }
-
   listPreferences(): NotificationPreference[] {
     const rows = this.db
       .prepare(
