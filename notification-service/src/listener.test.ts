@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ServiceConfig, ScoreChangedEvent } from "./types";
 
 // Hoisted mock references — accessible before module evaluation
-const { getLatestLedgerMock, getEventsMock } = vi.hoisted(() => ({
+const { getLatestLedgerMock, getEventsMock, getNetworkMock } = vi.hoisted(() => ({
   getLatestLedgerMock: vi.fn(),
   getEventsMock: vi.fn(),
+  getNetworkMock: vi.fn(),
 }));
 
 vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       Server: vi.fn().mockImplementation(() => ({
         getLatestLedger: getLatestLedgerMock,
         getEvents: getEventsMock,
+        getNetwork: getNetworkMock,
       })),
     },
   };
@@ -209,11 +211,17 @@ describe("decodeScoreChanged", () => {
 
 // ── Issue #216: reconnect after a dropped RPC connection ────────────────────
 
+// Hex-encoded so it can round-trip through decodeScoreChanged's
+// expectedContractId check (Buffer.from(event.contractId()).toString("hex")),
+// now that fetchEvents actually passes it through (#432).
+const TEST_REGISTRY_CONTRACT_ID_HEX =
+  "abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567";
+
 describe("pollScoreChanges reconnects after a dropped RPC connection", () => {
   const config: ServiceConfig = {
     rpc_url: "https://example.invalid",
     network_passphrase: "Test SDF Network ; September 2015",
-    registry_contract_id: "REGISTRY",
+    registry_contract_id: TEST_REGISTRY_CONTRACT_ID_HEX,
     vault_contract_id: "VAULT",
     db_path: ":memory:",
     poll_interval_ms: 50,
@@ -223,9 +231,15 @@ describe("pollScoreChanges reconnects after a dropped RPC connection", () => {
   beforeEach(() => {
     getLatestLedgerMock.mockReset();
     getEventsMock.mockReset();
-    // Default: server responds normally, caught up
+    getNetworkMock.mockReset();
+    // Default: server responds normally, caught up, and reports the network
+    // config expects.
     getLatestLedgerMock.mockResolvedValue({ sequence: 100 });
     getEventsMock.mockResolvedValue({ events: [] });
+    getNetworkMock.mockResolvedValue({
+      passphrase: config.network_passphrase,
+      protocolVersion: "22",
+    });
   });
 
   it("continues polling after a connection error and processes subsequent events", async () => {
@@ -246,6 +260,7 @@ describe("pollScoreChanges reconnects after a dropped RPC connection", () => {
             value: buildScoreChangedEvent(
               ["score_changed", 7],
               buildDataMap(FULL_SCORES),
+              Buffer.from(TEST_REGISTRY_CONTRACT_ID_HEX, "hex"),
             ),
             ledger: 100,
             timestamp: TIMESTAMP,
@@ -271,5 +286,80 @@ describe("pollScoreChanges reconnects after a dropped RPC connection", () => {
     expect(getLatestLedgerMock.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(processed).toHaveLength(1);
     expect(processed[0].project_id).toBe(7);
+  });
+});
+
+// ── Issue #433: network_passphrase must actually be checked against the RPC server ─
+
+describe("pollScoreChanges network passphrase check", () => {
+  const config: ServiceConfig = {
+    rpc_url: "https://example.invalid",
+    network_passphrase: "Test SDF Network ; September 2015",
+    registry_contract_id: "REGISTRY",
+    vault_contract_id: "VAULT",
+    db_path: ":memory:",
+    poll_interval_ms: 50,
+    api_port: 3000,
+  };
+
+  beforeEach(() => {
+    getLatestLedgerMock.mockReset();
+    getEventsMock.mockReset();
+    getNetworkMock.mockReset();
+    getLatestLedgerMock.mockResolvedValue({ sequence: 100 });
+    getEventsMock.mockResolvedValue({ events: [] });
+  });
+
+  it("logs an error when the RPC server's network passphrase doesn't match config", async () => {
+    getNetworkMock.mockResolvedValue({
+      passphrase: "Public Global Stellar Network ; September 2015",
+      protocolVersion: "22",
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const handle = await pollScoreChanges(
+      config,
+      async () => {},
+      async () => 0,
+      async () => {},
+    );
+    // The network-passphrase check is fire-and-forget so it never delays the
+    // poll loop starting; flush microtasks so its .then()/.catch() settles.
+    await new Promise((r) => setTimeout(r, 0));
+    await handle.stop();
+
+    expect(getNetworkMock).toHaveBeenCalled();
+    expect(
+      errorSpy.mock.calls.some((call) =>
+        String(call[0]).includes("Network passphrase mismatch"),
+      ),
+    ).toBe(true);
+
+    errorSpy.mockRestore();
+  });
+
+  it("does not log a mismatch when the RPC server's network passphrase matches config", async () => {
+    getNetworkMock.mockResolvedValue({
+      passphrase: config.network_passphrase,
+      protocolVersion: "22",
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const handle = await pollScoreChanges(
+      config,
+      async () => {},
+      async () => 0,
+      async () => {},
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    await handle.stop();
+
+    expect(
+      errorSpy.mock.calls.some((call) =>
+        String(call[0]).includes("Network passphrase mismatch"),
+      ),
+    ).toBe(false);
+
+    errorSpy.mockRestore();
   });
 });

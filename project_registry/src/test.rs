@@ -443,6 +443,34 @@ fn test_get_projects_page_zero_limit_returns_empty() {
     assert_eq!(page.len(), 0);
 }
 
+// ── Issue #435: offset beyond the project counter was never explicitly tested ──
+
+#[test]
+fn test_get_projects_page_offset_beyond_counter_returns_empty() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    for i in 1..=5u32 {
+        client.create_project(
+            &creator,
+            &String::from_str(&env, &std::format!("ipfs://Qm{i}")),
+            &0u64,
+            &test_metadata_hash(&env),
+        );
+    }
+
+    // 5 projects exist; offset is far beyond the counter, distinct from a
+    // large-limit edge case (limit here is small and would page normally
+    // if offset were in range).
+    let page = client.get_projects_page(&1_000u32, &10u32);
+    assert_eq!(page.len(), 0);
+
+    // Also check the boundary: offset exactly equal to the counter should
+    // likewise return nothing (there's no project ID `counter + 1` yet).
+    let boundary_page = client.get_projects_page(&5u32, &10u32);
+    assert_eq!(boundary_page.len(), 0);
+}
+
 #[test]
 #[should_panic]
 fn test_update_impact_score_nonexistent_project_panics() {
@@ -1723,6 +1751,50 @@ fn test_score_history_multiple_updates_ordered() {
     // Explicit assertion on chronological ordering: timestamps must be strictly increasing
     assert!(history.get(0).unwrap().timestamp < history.get(1).unwrap().timestamp);
     assert!(history.get(1).unwrap().timestamp < history.get(2).unwrap().timestamp);
+}
+
+// ── Issue #434: get_score_history's ring-buffer wraparound was never tested ────
+
+#[test]
+fn test_score_history_wraps_around_past_max_score_history() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    // MAX_SCORE_HISTORY is 50; perform 55 updates (5 past the buffer size) with a
+    // distinct credit_quality each time so every call actually appends (no no-ops).
+    // Update i uses credit_quality = i, green_impact = 50 (fixed).
+    for i in 0..55u32 {
+        client.update_impact_score(&id, &i, &50u32);
+    }
+
+    let history = client.get_score_history(&id);
+
+    // Only the most recent MAX_SCORE_HISTORY (50) entries survive; updates 0-4
+    // were overwritten by updates 50-54.
+    assert_eq!(history.len(), 50);
+    assert_eq!(
+        history.get(0).unwrap().credit_quality,
+        5,
+        "oldest surviving entry should be update index 5 (updates 0-4 were overwritten)"
+    );
+    assert_eq!(
+        history.get(49).unwrap().credit_quality,
+        54,
+        "newest entry should be the last update (index 54)"
+    );
+
+    // Confirm every surviving entry is in strict chronological order with no gaps
+    // or leaked overwritten data: position k holds update index (5 + k).
+    for k in 0..50u32 {
+        assert_eq!(history.get(k).unwrap().credit_quality, 5 + k);
+    }
 }
 
 #[test]

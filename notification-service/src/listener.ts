@@ -125,6 +125,7 @@ async function fetchEvents(
         event.value,
         event.ledger,
         event.timestamp,
+        contractId,
       );
       if (decoded) {
         console.log(
@@ -154,6 +155,25 @@ export async function pollScoreChanges(
   setLastLedger: (ledger: number) => Promise<void>,
 ): Promise<PollHandle> {
   const server = new SorobanRpc.Server(config.rpc_url);
+
+  // Sanity-check that rpc_url actually points at the network config claims to
+  // be (#433): network_passphrase was parsed from config and documented but
+  // never used anywhere, so a misconfigured RPC endpoint (e.g. prod pointed
+  // at testnet) would previously go undetected until symptoms showed up
+  // downstream. Fire-and-forget -- this must never delay or block the poll
+  // loop starting up; a confirmed mismatch is just logged loudly.
+  server
+    .getNetwork()
+    .then((network) => {
+      if (network.passphrase !== config.network_passphrase) {
+        console.error(
+          `[listener] Network passphrase mismatch: rpc_url reports "${network.passphrase}" but config expects "${config.network_passphrase}". Check STELLAR_RPC_URL/STELLAR_NETWORK_PASSPHRASE.`,
+        );
+      }
+    })
+    .catch((err) => {
+      console.error("[listener] Could not verify RPC network passphrase:", err);
+    });
 
   console.log(
     `[listener] Starting poll every ${config.poll_interval_ms}ms for contract ${config.registry_contract_id}`,
