@@ -45,7 +45,6 @@ pub use types::{
 const MIN_VOTING_PERIOD: u64 = 86_400;
 
 /// Minimum oracle update interval in seconds (1 hour).
-#[allow(dead_code)]
 const MIN_UPDATE_INTERVAL: u64 = 3600;
 
 /// Minimum remaining TTL in ledgers before extending persistent storage rent (#388).
@@ -711,6 +710,13 @@ impl ProjectRegistry {
             .get(&DataKey::Project(project_id))
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
+        // Rate-limit oracle updates: reject if too soon since the last update.
+        if project.last_update_timestamp > 0
+            && env.ledger().timestamp() < project.last_update_timestamp + MIN_UPDATE_INTERVAL
+        {
+            panic_with_error!(&env, RegistryError::UpdateTooFrequent);
+        }
+
         let old_cq = project.credit_quality;
         if old_cq == credit_quality {
             return;
@@ -1123,6 +1129,13 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
         .get(&DataKey::Project(project_id))
         .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
+    // Rate-limit oracle updates: reject if too soon since the last update.
+    if project.last_update_timestamp > 0
+        && env.ledger().timestamp() < project.last_update_timestamp + MIN_UPDATE_INTERVAL
+    {
+        panic_with_error!(&env, RegistryError::UpdateTooFrequent);
+    }
+
     if project.credit_quality == credit_quality && project.green_impact == green_impact {
         return;
     }
@@ -1133,6 +1146,7 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
 
     project.credit_quality = credit_quality;
     project.green_impact = green_impact;
+    project.last_update_timestamp = env.ledger().timestamp();
     let new_rate = compute_rate(credit_quality, green_impact);
 
     env.storage()
