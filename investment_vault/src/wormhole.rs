@@ -166,13 +166,21 @@ pub enum BridgeDataKey {
 const PAYLOAD_PREFIX: &[u8] = b"HBS\x00";
 
 /// Encode an Address into 32 bytes via the Env's XDR serialization.
+///
+/// Right-aligned: a source shorter than 32 bytes is left-padded with zeros
+/// (`buf[32-len..32] = xdr`), and a source longer than 32 bytes is truncated
+/// by keeping the *trailing* 32 bytes (`buf = xdr[len-32..len]`), not the
+/// leading ones — the meaningful key material of a real Stellar `Address`'s
+/// XDR encoding sits after its leading type discriminant, so keeping the
+/// trailing bytes is what "right-padded" encoding requires on both ends (#404).
 pub fn address_to_bytes32(env: &Env, addr: &Address) -> BytesN<32> {
     let xdr = addr.to_xdr(env);
-    let len = xdr.len();
+    let len = xdr.len() as usize;
     let mut buf = [0u8; 32];
-    let copy_len = core::cmp::min(len as usize, 32usize);
+    let start = len.saturating_sub(32);
+    let copy_len = core::cmp::min(len, 32usize);
     for i in 0..copy_len {
-        buf[32 - copy_len + i] = xdr.get(i as u32).unwrap_or(0);
+        buf[32 - copy_len + i] = xdr.get((start + i) as u32).unwrap_or(0);
     }
     BytesN::from_array(env, &buf)
 }

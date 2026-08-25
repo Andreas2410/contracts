@@ -7,6 +7,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
     token::StellarAssetClient,
     token::TokenClient,
+    xdr::ToXdr,
     Address, BytesN, Env, IntoVal, String,
 };
 
@@ -1660,6 +1661,32 @@ fn test_set_wormhole_core_persists() {
             .expect("wormhole core should be persisted after set_wormhole_core")
     });
     assert_eq!(stored, core);
+}
+
+// ── Issue #404: address_to_bytes32 must keep the trailing 32 bytes, not the leading ─
+
+#[test]
+fn test_address_to_bytes32_keeps_trailing_bytes_when_source_exceeds_32() {
+    let s = setup();
+    let addr = Address::generate(&s.env);
+    let xdr = addr.clone().to_xdr(&s.env);
+    let len = xdr.len() as usize;
+    assert!(
+        len > 32,
+        "test assumes a real Address's XDR encoding exceeds 32 bytes"
+    );
+
+    let encoded = wormhole::address_to_bytes32(&s.env, &addr);
+    let encoded_array = encoded.to_array();
+
+    let mut expected = [0u8; 32];
+    for i in 0..32 {
+        expected[i] = xdr.get((len - 32 + i) as u32).unwrap();
+    }
+    assert_eq!(
+        encoded_array, expected,
+        "should retain the trailing 32 bytes of the source XDR, not the leading 32"
+    );
 }
 
 // ── Issue #429: set_carbon_oracle()/set_max_transaction_amount() success-path coverage ─
