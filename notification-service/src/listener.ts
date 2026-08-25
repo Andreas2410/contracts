@@ -96,7 +96,7 @@ export function decodeScoreChanged(
   }
 }
 
-/** Fetch events from Soroban RPC for a range of ledgers. */
+/** Fetch events from Soroban RPC for a range of ledgers, paginating through all results. */
 async function fetchEvents(
   server: SorobanRpc.Server,
   contractId: string,
@@ -104,8 +104,9 @@ async function fetchEvents(
   _endLedger: number,
 ): Promise<ScoreChangedEvent[]> {
   const results: ScoreChangedEvent[] = [];
+  let cursor: string | undefined;
 
-  try {
+  do {
     const response = await server.getEvents({
       startLedger,
       filters: [
@@ -116,6 +117,7 @@ async function fetchEvents(
       ],
       pagination: {
         limit: 100,
+        ...(cursor ? { cursor } : {}),
       },
     });
 
@@ -134,9 +136,9 @@ async function fetchEvents(
         results.push(decoded);
       }
     }
-  } catch (err) {
-    console.error("Error fetching events:", err);
-  }
+
+    cursor = response.events.length === 100 ? response.cursor : undefined;
+  } while (cursor);
 
   return results;
 }

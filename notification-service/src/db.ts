@@ -201,6 +201,26 @@ export class Store {
   }
 
   /**
+   * Check whether a specific (investor, project, ledger) notification has
+   * already been recorded. Used for cross-restart dedup — the in-memory
+   * Set is lost on process restart, but the DB table persists.
+   */
+  hasBeenNotified(
+    investor_address: string,
+    project_id: number,
+    ledger: number,
+  ): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM notification_history
+         WHERE investor_address = ? AND project_id = ? AND ledger = ?
+         LIMIT 1`,
+      )
+      .get(investor_address, project_id, ledger);
+    return !!row;
+  }
+
+  /**
    * Returns a page of notification history, most recent first, optionally
    * filtered to a single investor. Bounded by `limit`/`offset` so callers
    * can never pull the full unbounded history in one request.
