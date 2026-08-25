@@ -79,3 +79,15 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Data**: `(chain_id: u32, emitter: BytesN<32>, trusted: bool)`
 - **Description**: Emitted when a cross-chain emitter address is registered or unregistered as trusted for a given source chain, gating which inbound VAAs `complete_bridge_transfer` will accept.
 - **Emitted by**: [`set_trusted_emitter`](INTERFACE.md#investmentvault)
+
+### `flash_loan`
+- **Topics**: `["vault", "flash_loan"]`
+- **Data**: `(initiator: Address, borrower: Address, amount: i128, fee: i128)`
+- **Description**: Emitted when a flash loan is drawn and successfully repaid (principal plus fee) within the same transaction.
+- **Emitted by**: [`execute_flash_loan`](INTERFACE.md#investmentvault)
+
+### `flash_loan_fee_set`
+- **Topics**: `["vault", "flash_loan_fee_set"]`
+- **Data**: `(fee_bps: i128)`
+- **Description**: Emitted when the flash loan fee, in basis points, is updated.
+- **Emitted by**: [`set_flash_loan_fee`](INTERFACE.md#investmentvault)
