@@ -50,6 +50,18 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 
 ## Investment Vault Events
 
+### `deposit`
+- **Topics**: `["vault", "deposit"]`
+- **Data**: `(from: Address, usdc_amount: i128, shares_minted: i128)`
+- **Description**: Emitted when an investor deposits USDC and receives newly minted vault shares.
+- **Emitted by**: [`deposit`](INTERFACE.md#investmentvault)
+
+### `withdraw`
+- **Topics**: `["vault", "withdraw"]`
+- **Data**: `(from: Address, shares_burned: i128, usdc_returned: i128)`
+- **Description**: Emitted when an investor burns shares and receives USDC immediately (sufficient liquid USDC was available). See `withdraw_queued` for the insufficient-liquidity path.
+- **Emitted by**: [`withdraw`](INTERFACE.md#investmentvault)
+
 ### `project_funded`
 - **Topics**: `["vault", "project_funded"]`
 - **Data**: `(project_id: u32, amount: i128, recipient: Address)`
