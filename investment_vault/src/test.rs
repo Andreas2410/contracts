@@ -7,6 +7,7 @@ use soroban_sdk::{
     testutils::{Address as _, Events as _, Ledger as _},
     token::StellarAssetClient,
     token::TokenClient,
+    xdr::ToXdr,
     Address, BytesN, Env, IntoVal, String,
 };
 
@@ -183,6 +184,39 @@ fn test_withdraw_returns_usdc() {
 
     assert_eq!(returned, 1_000_0000000i128);
     assert_eq!(s.vault_client.balance(&investor), 0);
+}
+
+// ── Issue #406: withdraw()'s min_usdc_return slippage guard was never exercised ─
+
+#[test]
+#[should_panic(expected = "Error(Contract, #33)")]
+fn test_withdraw_rejects_when_min_usdc_return_exceeds_actual() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Fresh 1:1 vault: convert_to_assets(shares) == 1_000_0000000. Ask for 1 stroop more.
+    s.vault_client.withdraw(&investor, &shares, &(1_000_0000000i128 + 1));
+}
+
+#[test]
+fn test_withdraw_succeeds_when_min_usdc_return_exactly_equals_actual() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+
+    let shares = s.vault_client.deposit(&investor, &1_000_0000000i128);
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Boundary: usdc_returned == min_usdc_return should succeed (guard is `<`, not `<=`).
+    let returned = s.vault_client.withdraw(&investor, &shares, &1_000_0000000i128);
+
+    assert_eq!(returned, 1_000_0000000i128);
 }
 
 #[test]
@@ -1383,6 +1417,101 @@ fn test_high_utilization_withdrawal_emits_warning_event() {
     );
 }
 
+// ── Issue #407: the graduated withdrawal limit's rejection was never tested ─────
+// (only the accompanying UtilizationWarning event was, above)
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_withdraw_rejects_above_high_tier_limit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 10_000_0000000i128);
+    s.vault_client.deposit(&investor, &10_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    // Fund 9500 USDC: liquid = 500, utilization = 95% (>= UTIL_HIGH_BPS/90%).
+    // max_withdraw = liquid * HIGH_TIER_PCT (10%) = 50 USDC.
+    s.vault_client.fund_project(&project_id, &9_500_0000000i128);
+    assert!(s.vault_client.get_utilization_bps() >= 9_000);
+
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Request 100 USDC (>= MIN_WITHDRAW, but well above the 50 USDC cap).
+    s.vault_client.withdraw(&investor, &100_0000000i128, &0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_withdraw_rejects_above_med_tier_limit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 10_000_0000000i128);
+    s.vault_client.deposit(&investor, &10_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    // Fund 8000 USDC: liquid = 2000, utilization = 80% (>= UTIL_MED_BPS/70%, < 90%).
+    // max_withdraw = liquid * MED_TIER_PCT (25%) = 500 USDC.
+    s.vault_client.fund_project(&project_id, &8_000_0000000i128);
+    let util = s.vault_client.get_utilization_bps();
+    assert!((7_000..9_000).contains(&util));
+
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Request 600 USDC — above the 500 USDC cap.
+    s.vault_client.withdraw(&investor, &600_0000000i128, &0);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_withdraw_rejects_above_low_tier_limit() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let creator = Address::generate(&s.env);
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 10_000_0000000i128);
+    s.vault_client.deposit(&investor, &10_000_0000000i128);
+
+    let registry_client = registry_contract::Client::new(&s.env, &s.registry);
+    registry_client.set_whitelist(&creator, &true);
+    let project_id = registry_client.create_project(
+        &creator,
+        &String::from_str(&s.env, "ipfs://Qm"),
+        &0u64,
+        &test_metadata_hash(&s.env),
+    );
+    // Fund 6000 USDC: liquid = 4000, utilization = 60% (>= UTIL_LOW_BPS/50%, < 70%).
+    // max_withdraw = liquid * LOW_TIER_PCT (50%) = 2000 USDC.
+    s.vault_client.fund_project(&project_id, &6_000_0000000i128);
+    let util = s.vault_client.get_utilization_bps();
+    assert!((5_000..7_000).contains(&util));
+
+    s.env.ledger().with_mut(|li| {
+        li.timestamp += MIN_LOCK_PERIOD + 1;
+    });
+    // Request 2500 USDC — above the 2000 USDC cap.
+    s.vault_client.withdraw(&investor, &2_500_0000000i128, &0);
+}
+
 // ── Issue #47: minimum funding thresholds ─────────────────────────────────────
 
 #[test]
@@ -1660,6 +1789,32 @@ fn test_set_wormhole_core_persists() {
             .expect("wormhole core should be persisted after set_wormhole_core")
     });
     assert_eq!(stored, core);
+}
+
+// ── Issue #404: address_to_bytes32 must keep the trailing 32 bytes, not the leading ─
+
+#[test]
+fn test_address_to_bytes32_keeps_trailing_bytes_when_source_exceeds_32() {
+    let s = setup();
+    let addr = Address::generate(&s.env);
+    let xdr = addr.clone().to_xdr(&s.env);
+    let len = xdr.len() as usize;
+    assert!(
+        len > 32,
+        "test assumes a real Address's XDR encoding exceeds 32 bytes"
+    );
+
+    let encoded = wormhole::address_to_bytes32(&s.env, &addr);
+    let encoded_array = encoded.to_array();
+
+    let mut expected = [0u8; 32];
+    for i in 0..32 {
+        expected[i] = xdr.get((len - 32 + i) as u32).unwrap();
+    }
+    assert_eq!(
+        encoded_array, expected,
+        "should retain the trailing 32 bytes of the source XDR, not the leading 32"
+    );
 }
 
 // ── Issue #429: set_carbon_oracle()/set_max_transaction_amount() success-path coverage ─
