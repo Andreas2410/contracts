@@ -62,6 +62,18 @@ Each event lists the public [`INTERFACE.md`](INTERFACE.md) function(s) that emit
 - **Description**: Emitted when yield repayment USDC is received from a project and folded into the yield-per-share accumulator for later claims.
 - **Emitted by**: [`receive_yield`](INTERFACE.md#investmentvault)
 
+### `yield_claimed`
+- **Topics**: `["vault", "yield_claimed"]`
+- **Data**: `(to: Address, amount: i128)`
+- **Description**: Emitted when a shareholder claims accumulated yield, transferring USDC out of the vault to `to`.
+- **Emitted by**: [`claim_yield`](INTERFACE.md#investmentvault)
+
+### `insurance_claimed`
+- **Topics**: `["vault", "insurance_claimed"]`
+- **Data**: `(project_id: u32, recipient: Address, amount: i128)`
+- **Description**: Emitted when an insurance payout is made for a defaulted project, transferring USDC out of the vault to `recipient`.
+- **Emitted by**: [`claim_insurance`](INTERFACE.md#investmentvault), [`claim_insurance_with_approvals`](INTERFACE.md#investmentvault)
+
 ### `bridge_transfer_initiated`
 - **Topics**: `["vault", "bridge_transfer_initiated"]`
 - **Data**: `(from: Address, amount: i128, target_chain: u32, recipient: BytesN<32>, sequence: u64)`
