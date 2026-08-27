@@ -3942,3 +3942,21 @@ fn test_complete_bridge_transfer_rejects_replayed_vaa() {
     // Second call with the same VAA must fail (replay guard).
     s.vault_client.complete_bridge_transfer(&dummy_vaa);
 }
+
+#[test]
+fn test_enable_secondary_trading_allowed_while_paused() {
+    let s = setup();
+    
+    // Pause the vault
+    s.vault_client.pause();
+    assert_eq!(s.vault_client.is_paused(), true);
+    
+    // Verify trading is not enabled initially
+    assert_eq!(s.vault_client.is_trading_enabled(), false);
+    
+    // Enable secondary trading while the vault is paused
+    s.vault_client.enable_secondary_trading();
+    
+    // Verify it succeeded
+    assert_eq!(s.vault_client.is_trading_enabled(), true);
+}
