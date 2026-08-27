@@ -658,6 +658,30 @@ fn test_update_credit_quality_score_noop_identical_values() {
     assert_eq!(project_before.green_impact, project_after.green_impact);
 }
 
+// ── #322: update_credit_quality_score must respect the multisig gate ────────
+
+#[test]
+#[should_panic]
+fn test_update_credit_quality_score_rejects_plain_call_once_multisig_enabled() {
+    let (env, _admin, _whitelister, client) = setup();
+    let creator = Address::generate(&env);
+    let signer1 = Address::generate(&env);
+    let signer2 = Address::generate(&env);
+    client.set_whitelist(&creator, &true);
+    let id = client.create_project(
+        &creator,
+        &String::from_str(&env, "ipfs://QmCreditQualityMultisig"),
+        &0u64,
+        &test_metadata_hash(&env),
+    );
+
+    client.set_multisig_admin(&soroban_sdk::vec![&env, signer1, signer2], &2u32);
+
+    // Plain owner call must now be rejected — only update_credit_quality_score
+    // is missing this guard; update_impact_score already enforces it.
+    client.update_credit_quality_score(&id, &80u32);
+}
+
 // ── URI length edge cases (#119) ──────────────────────────────────────────────
 
 #[test]
