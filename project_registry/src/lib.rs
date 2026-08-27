@@ -469,6 +469,9 @@ impl ProjectRegistry {
         }
         let mut project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+        if project.status == types::ProjectStatus::Archived {
+            panic_with_error!(&env, RegistryError::ProjectArchived);
+        }
         if project.certification_status == status {
             panic_with_error!(&env, RegistryError::AlreadyCertified);
         }
@@ -677,6 +680,10 @@ impl ProjectRegistry {
         let mut project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
 
+        if project.status == types::ProjectStatus::Archived {
+            panic_with_error!(&env, RegistryError::ProjectArchived);
+        }
+
         // Rate-limit oracle updates: reject if too soon since the last update.
         if project.last_update_timestamp > 0
             && env.ledger().timestamp() < project.last_update_timestamp + MIN_UPDATE_INTERVAL
@@ -733,6 +740,9 @@ impl ProjectRegistry {
         }
         let project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+        if project.status == types::ProjectStatus::Archived {
+            panic_with_error!(&env, RegistryError::ProjectArchived);
+        }
         if project.owner != depositor {
             panic_with_error!(&env, RegistryError::NotProjectOwner);
         }
@@ -767,12 +777,21 @@ impl ProjectRegistry {
         caller.require_auth();
         let project: ProjectData = storage::read_project(&env, project_id)
             .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+        if project.status == types::ProjectStatus::Archived {
+            panic_with_error!(&env, RegistryError::ProjectArchived);
+        }
         if project.owner != caller {
             panic_with_error!(&env, RegistryError::NotProjectOwner);
         }
         // Collateral can only be released once the project has matured.
-        if project.maturity_date > 0 && env.ledger().timestamp() < project.maturity_date {
-            panic_with_error!(&env, RegistryError::ProjectNotMature);
+        if project.maturity_date > 0 {
+            if env.ledger().timestamp() < project.maturity_date {
+                panic_with_error!(&env, RegistryError::ProjectNotMature);
+            }
+        } else {
+            if project.status != types::ProjectStatus::Completed && project.status != types::ProjectStatus::Pending {
+                panic_with_error!(&env, RegistryError::ProjectNotMature);
+            }
         }
 
         let key = DataKey::Collateral(project_id, token.clone());
@@ -1079,6 +1098,10 @@ fn update_impact_score_internal(env: Env, project_id: u32, credit_quality: u32, 
     }
     let mut project: ProjectData = storage::read_project(&env, project_id)
         .unwrap_or_else(|| panic_with_error!(&env, RegistryError::ProjectNotFound));
+
+    if project.status == types::ProjectStatus::Archived {
+        panic_with_error!(&env, RegistryError::ProjectArchived);
+    }
 
     // Rate-limit oracle updates: reject if too soon since the last update.
     if project.last_update_timestamp > 0

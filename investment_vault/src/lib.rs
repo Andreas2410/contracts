@@ -911,6 +911,7 @@ impl InvestmentVault {
     /// Configure multi-sig admin signers and approval threshold (owner-only) (#184).
     #[only_owner]
     pub fn set_multisig_admin(env: Env, signers: Vec<Address>, threshold: u32) {
+        require_not_paused(&env);
         validate_multisig_config(&env, &signers, threshold);
         env.storage()
             .instance()
@@ -951,6 +952,7 @@ impl InvestmentVault {
     /// Pass `fee_bps = 0` to disable the fee entirely.
     #[only_owner]
     pub fn set_management_fee(env: Env, fee_bps: u32, recipient: Address) {
+        require_not_paused(&env);
         require_current_state(&env);
         if fee_bps > MAX_MANAGEMENT_FEE_BPS {
             panic_with_error!(&env, VaultError::FeeExceedsMaximum);
@@ -1026,6 +1028,7 @@ impl InvestmentVault {
     /// Emits `FundingThresholdsSet`. Admin-only.
     #[only_owner]
     pub fn set_funding_thresholds(env: Env, min_credit_quality: u32, min_green_impact: u32) {
+        require_not_paused(&env);
         require_current_state(&env);
         if min_credit_quality > MAX_SCORE || min_green_impact > MAX_SCORE {
             panic_with_error!(&env, VaultError::ThresholdOutOfRange);
@@ -1069,6 +1072,7 @@ impl InvestmentVault {
     /// Emits `RegistryChanged`.
     #[only_owner]
     pub fn set_registry(env: Env, new_registry: Address) {
+        require_not_paused(&env);
         require_current_state(&env);
         // Validate that the new address is a deployed ProjectRegistry by calling it.
         // Panics at call time if the address is not a valid registry contract.
@@ -1170,6 +1174,7 @@ impl InvestmentVault {
     /// `ledgers = 0` disables the window entirely (not recommended).
     #[only_owner]
     pub fn set_withdrawal_window(env: Env, ledgers: u32) {
+        require_not_paused(&env);
         require_current_state(&env);
         env.storage()
             .instance()
@@ -1201,6 +1206,7 @@ impl InvestmentVault {
     /// Admin-only.
     #[only_owner]
     pub fn set_volume_fee_tier(env: Env, threshold: i128, discounted_bps: u32) {
+        require_not_paused(&env);
         require_current_state(&env);
         if discounted_bps > MAX_MANAGEMENT_FEE_BPS {
             panic_with_error!(&env, VaultError::FeeExceedsMaximum);
@@ -1248,6 +1254,7 @@ impl InvestmentVault {
     /// Pass 0 to restore the compile-time default.
     #[only_owner]
     pub fn set_max_investment_per_project(env: Env, cap: i128) {
+        require_not_paused(&env);
         require_current_state(&env);
         if cap < 0 {
             panic_with_error!(&env, VaultError::AmountNotPositive);
@@ -1304,6 +1311,7 @@ impl InvestmentVault {
     /// Set the cross-chain bridge contract address (owner-only) (#184).
     #[only_owner]
     pub fn set_bridge(env: Env, bridge: Address) {
+        require_not_paused(&env);
         require_current_state(&env);
         let current: Option<Address> = env.storage().instance().get(&VaultKey::Bridge);
         if current == Some(bridge.clone()) {
@@ -1349,6 +1357,7 @@ impl InvestmentVault {
     /// Set the Wormhole core contract address (owner-only) (#184).
     #[only_owner]
     pub fn set_wormhole_core(env: Env, core: Address) {
+        require_not_paused(&env);
         require_current_state(&env);
         env.storage()
             .instance()
@@ -1365,6 +1374,7 @@ impl InvestmentVault {
         emitter_address: BytesN<32>,
         trusted: bool,
     ) {
+        require_not_paused(&env);
         require_current_state(&env);
         env.storage().persistent().set(
             &BridgeDataKey::TrustedEmitter(chain_id, emitter_address.clone()),
@@ -1483,6 +1493,7 @@ impl InvestmentVault {
     /// Set the flash loan fee in basis points (owner-only) (#184).
     #[only_owner]
     pub fn set_flash_loan_fee(env: Env, fee_bps: u32) {
+        require_not_paused(&env);
         if !(0..=1000).contains(&fee_bps) {
             panic_with_error!(&env, VaultError::FlashLoanFeeOutOfRange);
         }
@@ -1576,6 +1587,7 @@ impl InvestmentVault {
     /// Set the carbon credit oracle address (owner-only) (#184).
     #[only_owner]
     pub fn set_carbon_oracle(env: Env, oracle: Address) {
+        require_not_paused(&env);
         require_current_state(&env);
         let current: Option<Address> = env.storage().instance().get(&VaultKey::CarbonOracle);
         if current == Some(oracle.clone()) {
@@ -1595,6 +1607,7 @@ impl InvestmentVault {
     /// via `export_regulatory_data` for off-chain/future use, not as an
     /// on-chain input to credit issuance.
     pub fn set_carbon_credit_price(env: Env, price: i128) {
+        require_not_paused(&env);
         require_current_state(&env);
         let oracle: Address = env
             .storage()
@@ -1736,6 +1749,7 @@ impl InvestmentVault {
     /// Set the maximum transaction amount limit for compliance monitoring (owner-only) (#184).
     #[only_owner]
     pub fn set_max_transaction_amount(env: Env, amount: i128) {
+        require_not_paused(&env);
         require_current_state(&env);
         if amount < 0 {
             panic_with_error!(&env, VaultError::NegativeMaxTransactionAmount);
