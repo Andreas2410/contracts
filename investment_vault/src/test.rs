@@ -3808,6 +3808,43 @@ fn register_mock_core(env: &Env, return_vaa: wormhole::ParsedVaa) -> Address {
 }
 
 #[test]
+fn test_initiate_bridge_transfer_happy_path() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let amount: i128 = 200_0000000i128;
+
+    mint_usdc(&s.env, &s.usdc_sac, &investor, 1_000_0000000i128);
+    s.vault_client.deposit(&investor, &1_000_0000000i128);
+
+    // Setup mock core
+    let return_vaa = wormhole::ParsedVaa {
+        emitter_chain: wormhole::chain_id::ETHEREUM,
+        emitter_address: soroban_sdk::BytesN::from_array(&s.env, &[0u8; 32]),
+        payload: soroban_sdk::Bytes::new(&s.env),
+    };
+    let mock_core = register_mock_core(&s.env, return_vaa);
+    s.vault_client.set_wormhole_core(&mock_core);
+
+    let recipient = soroban_sdk::BytesN::from_array(&s.env, &[1u8; 32]);
+    let target_chain = wormhole::chain_id::ETHEREUM;
+    let nonce = 1;
+
+    let balance_before = s.vault_client.balance(&investor);
+    let supply_before = s.vault_client.total_supply();
+
+    let sequence = s.vault_client.initiate_bridge_transfer(
+        &investor,
+        &amount,
+        &target_chain,
+        &recipient,
+        &nonce,
+    );
+
+    assert_eq!(sequence, 0); // Mock returns 0
+    assert_eq!(s.vault_client.balance(&investor), balance_before - amount);
+    assert_eq!(s.vault_client.total_supply(), supply_before - amount);
+}
+
 fn test_complete_bridge_transfer_happy_path() {
     let s = setup();
     let bridge = Address::generate(&s.env);
