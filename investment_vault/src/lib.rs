@@ -105,8 +105,8 @@ const ANNUAL_PERIOD_SECS: i128 = 31_536_000;
 const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 17_280;
 
 /// Target TTL in ledgers after extension (#388).
-/// At 5 s/ledger this equals ~30 days (518 400 ledgers).
-const TTL_EXTEND_TO_LEDGERS: u32 = 518_400;
+/// At 5 s/ledger this equals ~10 years (63 072 000 ledgers).
+const TTL_EXTEND_TO_LEDGERS: u32 = 63_072_000;
 
 mod composability;
 mod events;
