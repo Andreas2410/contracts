@@ -101,12 +101,12 @@ const MIN_LOCK_PERIOD: u64 = 86_400;
 const ANNUAL_PERIOD_SECS: i128 = 31_536_000;
 
 /// Minimum remaining TTL in ledgers before extending persistent storage rent (#388).
-/// At 5 s/ledger this equals ~1 day (17 280 ledgers).
-const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 17_280;
+/// At 5 s/ledger this equals ~30 days (518 400 ledgers).
+const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 518_400;
 
 /// Target TTL in ledgers after extension (#388).
-/// At 5 s/ledger this equals ~30 days (518 400 ledgers).
-const TTL_EXTEND_TO_LEDGERS: u32 = 518_400;
+/// At 5 s/ledger this equals ~1 year (6 312 000 ledgers).
+const TTL_EXTEND_TO_LEDGERS: u32 = 6_312_000;
 
 mod composability;
 mod events;
@@ -477,7 +477,8 @@ impl InvestmentVault {
             token.transfer(&env.current_contract_address(), &recipient, &fee_amount);
         }
 
-        // Track lifetime deposits for portfolio analytics (#132)
+        // Track cumulative deposits for portfolio analytics; TTL is extended on
+        // every deposit and portfolio read (#132, #388).
         let prev_dep: i128 = env
             .storage()
             .persistent()
