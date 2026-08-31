@@ -283,6 +283,26 @@ fn test_receive_yield_with_approvals_after_multisig_enabled() {
 }
 
 #[test]
+fn test_total_deposited_persists_after_ttl_elapses() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let amount = 1_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, amount);
+    s.vault_client.deposit(&investor, &amount);
+
+    let before = s.vault_client.get_portfolio(&investor);
+    assert!(before.total_deposited > 0);
+
+    // Advance past the ~30-day TTL (518,400 ledgers) to expose the bug.
+    s.env.ledger().with_mut(|li| {
+        li.sequence_number += 518_401;
+    });
+
+    let after = s.vault_client.get_portfolio(&investor);
+    assert_eq!(before.total_deposited, after.total_deposited);
+}
+
+#[test]
 fn test_multisig_batch_fund_projects() {
     let s = setup();
     let signer1 = Address::generate(&s.env);
