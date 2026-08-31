@@ -101,12 +101,12 @@ const MIN_LOCK_PERIOD: u64 = 86_400;
 const ANNUAL_PERIOD_SECS: i128 = 31_536_000;
 
 /// Minimum remaining TTL in ledgers before extending persistent storage rent (#388).
-/// At 5 s/ledger this equals ~1 year (the protocol maximum).
-const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 6_312_000;
+/// At 5 s/ledger this equals ~1 day (17 280 ledgers).
+const TTL_EXTEND_THRESHOLD_LEDGERS: u32 = 17_280;
 
 /// Target TTL in ledgers after extension (#388).
-/// At 5 s/ledger this equals ~1 year (the protocol maximum).
-const TTL_EXTEND_TO_LEDGERS: u32 = 6_312_000;
+/// At 5 s/ledger this equals ~30 days (518 400 ledgers).
+const TTL_EXTEND_TO_LEDGERS: u32 = 518_400;
 
 mod composability;
 mod events;
@@ -477,7 +477,7 @@ impl InvestmentVault {
             token.transfer(&env.current_contract_address(), &recipient, &fee_amount);
         }
 
-        // Track cumulative deposits for portfolio analytics (#132)
+        // Track lifetime deposits for portfolio analytics (#132)
         let prev_dep: i128 = env
             .storage()
             .persistent()
@@ -838,10 +838,6 @@ impl InvestmentVault {
     // ── Portfolio analytics (#132) ─────────────────────────────────────────────
 
     /// Return a full on-chain portfolio snapshot for `account`.
-    ///
-    /// Note: `total_deposited` is cumulative but not guaranteed indefinitely; the
-    /// persistent entry's TTL is extended on deposits and reads, but after
-    /// `TTL_EXTEND_TO_LEDGERS` ledgers (~1 year) without activity it may read 0.
     pub fn get_portfolio(env: Env, account: Address) -> PortfolioInfo {
         require_current_state(&env);
         let shares = Base::balance(&env, &account);
@@ -866,16 +862,21 @@ impl InvestmentVault {
             shares * BPS_SCALE / total_shares
         };
 
-        let key = VaultKey::TotalDeposited(account);
-        let total_deposited: i128 = match env.storage().persistent().get(&key) {
-            Some(value) => {
-                env.storage()
-                    .persistent()
-                    .extend_ttl(&key, TTL_EXTEND_THRESHOLD_LEDGERS, TTL_EXTEND_TO_LEDGERS);
-                value
-            }
-            None => 0,
-        };
+        let total_deposited_key = VaultKey::TotalDeposited(account.clone());
+        let total_deposited: i128 = env
+            .storage()
+            .persistent()
+            .get(&total_deposited_key)
+            .unwrap_or(0);
+        if env.storage().persistent().has(&total_deposited_key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(
+                    &total_deposited_key,
+                    TTL_EXTEND_THRESHOLD_LEDGERS,
+                    TTL_EXTEND_TO_LEDGERS,
+                );
+        }
 
         PortfolioInfo {
             shares,
