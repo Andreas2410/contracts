@@ -3204,10 +3204,23 @@ fn test_total_deposited_survives_past_ttl_window() {
         amount
     );
 
-    // Advance beyond the maximum TTL (518,400 ledgers) currently applied to
-    // TotalDeposited. The lifetime value must not reset to zero.
+    // Advance to just inside the TTL threshold (17,280 ledgers remaining) so a
+    // read from get_portfolio must renew the TotalDeposited entry.
     s.env.ledger().with_mut(|li| {
-        li.sequence_number += 518_400 + 1;
+        li.sequence_number += 518_400 - 17_280 + 1;
+    });
+
+    // This read exercises the TTL bump on get_portfolio: the value must still
+    // be visible at this point, and the read should extend the entry's life.
+    assert_eq!(
+        s.vault_client.get_portfolio(&investor).total_deposited,
+        amount
+    );
+
+    // Advance far beyond the original 518,400-ledger TTL window. The lifetime
+    // value must not reset to zero.
+    s.env.ledger().with_mut(|li| {
+        li.sequence_number += 400_000;
     });
 
     let portfolio = s.vault_client.get_portfolio(&investor);
