@@ -862,11 +862,17 @@ impl InvestmentVault {
             shares * BPS_SCALE / total_shares
         };
 
+        let key = VaultKey::TotalDeposited(account);
         let total_deposited: i128 = env
             .storage()
             .persistent()
-            .get(&VaultKey::TotalDeposited(account))
+            .get(&key)
             .unwrap_or(0);
+        if env.storage().persistent().has(&key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, TTL_EXTEND_THRESHOLD_LEDGERS, TTL_EXTEND_TO_LEDGERS);
+        }
 
         PortfolioInfo {
             shares,
