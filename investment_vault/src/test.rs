@@ -335,7 +335,18 @@ fn test_total_deposited_survives_ttl_inactivity() {
     mint_usdc(&s.env, &s.usdc_sac, &investor, amount);
     s.vault_client.deposit(&investor, &amount);
 
-    // Capture the portfolio before prolonged inactivity.
+    let portfolio_before = s.vault_client.get_portfolio(&investor);
+    let total_deposited_before = portfolio_before.total_deposited;
+    assert_eq!(total_deposited_before, amount);
+
+    // Simulate the old 518,400-ledger TTL expiring by advancing well past it.
+    s.env.ledger().with_mut(|li| {
+        li.sequence_number += 600_000;
+    });
+
+    let portfolio_after = s.vault_client.get_portfolio(&investor);
+    assert_eq!(portfolio_after.total_deposited, total_deposited_before);
+}before prolonged inactivity.
     let before = s.vault_client.get_portfolio(&investor);
 
     // Simulate passage of ~30 days of ledgers (5s/ledger => 518,400 ledgers).
