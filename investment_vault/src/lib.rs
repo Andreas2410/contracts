@@ -838,6 +838,10 @@ impl InvestmentVault {
     // ── Portfolio analytics (#132) ─────────────────────────────────────────────
 
     /// Return a full on-chain portfolio snapshot for `account`.
+    ///
+    /// Note: `total_deposited` is cumulative but not guaranteed indefinitely; the
+    /// persistent entry's TTL is extended on deposits and reads, but after
+    /// `TTL_EXTEND_TO_LEDGERS` ledgers (~1 year) without activity it may read 0.
     pub fn get_portfolio(env: Env, account: Address) -> PortfolioInfo {
         require_current_state(&env);
         let shares = Base::balance(&env, &account);
