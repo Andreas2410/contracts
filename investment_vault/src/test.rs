@@ -3192,6 +3192,35 @@ fn test_get_portfolio_zero_for_nondepositor() {
 }
 
 #[test]
+fn test_total_deposited_survives_ttl_window_when_read() {
+    let s = setup();
+    let investor = Address::generate(&s.env);
+    let amount = 1_000_0000000i128;
+    mint_usdc(&s.env, &s.usdc_sac, &investor, amount);
+
+    // Use a known ledger sequence so the original 518,400-ledger TTL expiry
+    // is deterministic.
+    s.env.ledger().with_mut(|li| {
+        li.sequence_number = 100;
+    });
+    s.vault_client.deposit(&investor, &amount);
+    assert_eq!(s.vault_client.get_portfolio(&investor).total_deposited, amount);
+
+    // Move to just before the original TTL would expire; get_portfolio must
+    // refresh the entry's lifetime so a later read still sees it.
+    s.env.ledger().with_mut(|li| {
+        li.sequence_number = 100 + 518_400 - 1;
+    });
+    assert_eq!(s.vault_client.get_portfolio(&investor).total_deposited, amount);
+
+    // Advance just past the original expiry and confirm the value is intact.
+    s.env.ledger().with_mut(|li| {
+        li.sequence_number = 100 + 518_400 + 1;
+    });
+    assert_eq!(s.vault_client.get_portfolio(&investor).total_deposited, amount);
+}
+
+#[test]
 fn test_insurance_fund_balance_starts_at_zero() {
     let s = setup();
     assert_eq!(s.vault_client.insurance_fund_balance(), 0);
